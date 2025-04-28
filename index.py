@@ -7,6 +7,7 @@ import os
 import re
 import json
 import random
+import asyncio
 
 from dotenv import load_dotenv
 
@@ -904,7 +905,168 @@ else:
         except discord.HTTPException as e:
             await interaction.response.send_message(f"Error: Failed To Create Or Send Invite. Error Details: {str(e)}", ephemeral = True)
 
+# · · ─────── ·𖥸· ─────── · · Muting, Unmuting And Mute Setup Command · · ─────── ·𖥸· ─────── · ·
 
+    @client.command(name = "mute")
+    @commands.has_permissions(manage_roles = True)
+    async def mute(ctx, user: discord.Member, *, reason: str = None):
+        muted_role = discord.utils.get(ctx.guild.roles, name = "Muted")
+
+        if not muted_role:
+            await ctx.send("Error: 'Muted' Role Not Found. Please Create One Or Use The 'mute-setup' Command")
+            return
+        
+        if muted_role in user.roles:
+            await ctx.send(f"Error: {user.name} Is Already Muted.")
+
+        if not reason:
+            await ctx.send("Error: You must provide a reason for setting up the 'Muted' role.")
+            return
+
+        await user.add_roles(muted_role, reason = reason)
+
+        embed = discord.Embed(title="Mute Information", description=f"You have been muted in {ctx.guild.name}.", color=4915330)
+        embed.add_field(name="Reasoning", value=reason if reason else "No Reason Provided.", inline=False)
+
+        try:
+            await user.send(embed = embed)
+        except discord.Forbidden:
+            await ctx.send(f"Error: Cound Not Message {user.name}. They May Have Dms Closed.")
+
+        await ctx.send(f"Success: {user.name} Has Been Muted.")
+
+    @client.tree.command(name="mute", description="Mute A User In The Server")
+    @app_commands.describe(user="User To Mute", reason="Reason For Muting")
+    async def slash_mute(interaction: discord.Interaction, user: discord.Member, reason: str = None):
+        muted_role = discord.utils.get(interaction.guild.roles, name="Muted")
+
+        if not muted_role:
+            await interaction.response.send_message("Error: 'Muted' Role Not Found. Please Create One Or Use The 'mute-setup' Command", ephemeral=True)
+            return
+        
+        if muted_role in user.roles:
+            await interaction.response.send_message(f"Error: {user.name} Is Already Muted.", ephemeral=True)
+            return
+        
+        if not reason:
+            await interaction.response.send_message("Error: You must provide a reason for setting up the 'Muted' role.", ephemeral=True)
+            return
+
+        await user.add_roles(muted_role, reason=reason)
+
+        embed = discord.Embed(title="Mute Information", description=f"You have been muted in {interaction.guild.name}.", color=4915330)
+        embed.add_field(name="Reasoning", value=reason if reason else "No Reason Provided.", inline=False)
+
+        try:
+            await user.send(embed=embed)
+        except discord.Forbidden:
+            await interaction.followup.send(f"Error: Could Not Message {user.name}. They May Have DMs Closed.", ephemeral=True)
+
+        await interaction.response.send_message(f"Success: {user.name} Has Been Muted.", ephemeral=False)
+
+    @client.command(name="unmute")
+    @commands.has_permissions(manage_roles=True)
+    async def unmute(ctx, user: discord.Member):
+        muted_role = discord.utils.get(ctx.guild.roles, name="Muted")
+
+        if not muted_role:
+            await ctx.send("Error: 'Muted' Role Not Found. Please Create One Or Use The 'mute-setup' Command")
+            return
+
+        if muted_role not in user.roles:
+            await ctx.send(f"Error: {user.name} Is Not Muted.")
+            return
+
+        await user.remove_roles(muted_role)
+
+        embed = discord.Embed(title="Unmute Information", description=f"You have been unmuted in {ctx.guild.name}.", color=4915330)
+
+        try:
+            await user.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send(f"Error: Could Not Message {user.name}. They May Have DMs Closed.")
+
+        await ctx.send(f"Success: {user.name} Has Been Unmuted.")
+
+    @client.tree.command(name="unmute", description="Unmute A User In The Server")
+    @app_commands.describe(user="User To Unmute")
+    async def slash_unmute(interaction: discord.Interaction, user: discord.Member):
+        muted_role = discord.utils.get(interaction.guild.roles, name="Muted")
+
+        if not muted_role:
+            await interaction.response.send_message("Error: 'Muted' Role Not Found. Please Create One Or Use The 'mute-setup' Command", ephemeral=True)
+            return
+
+        if muted_role not in user.roles:
+            await interaction.response.send_message(f"Error: {user.name} Is Not Muted.", ephemeral=True)
+            return
+
+        await user.remove_roles(muted_role)
+
+        embed = discord.Embed(title="Unmute Information", description=f"You have been unmuted in {interaction.guild.name}.", color=4915330)
+
+        try:
+            await user.send(embed=embed)
+        except discord.Forbidden:
+            await interaction.followup.send(f"Error: Could Not Message {user.name}. They May Have DMs Closed.", ephemeral=True)
+
+        await interaction.response.send_message(f"Success: {user.name} Has Been Unmuted.")
+
+
+    @client.command(name = "setup-mute")
+    @commands.has_permissions(manage_roles = True)
+    async def setup_mute(ctx):
+        muted_role = discord.utils.get(ctx.guild.roles, name="Muted")
+
+        if muted_role:
+            await ctx.send("Error: A Role Named 'Muted' Already Exists.")
+            return
+
+        try:
+            muted_role = await ctx.guild.create_role(name="Muted", colour=discord.Colour(0x000001), reason="Muted role setup.")
+
+            for channel in ctx.guild.channels:
+                await channel.set_permissions(muted_role, 
+                                            send_messages=False, 
+                                            speak=False, 
+                                            add_reactions=False,
+                                            view_channel=True,
+                                            read_message_history = True)
+
+            await ctx.send("Success: 'Muted' Role Has Been Created And Configured.")
+        except discord.Forbidden:
+            await ctx.send("Error: Missing Permissions To Create Roles Or Edit Channel Permissions.")
+        except Exception as e:
+            await ctx.send(f"Error: An Unexpected Error Occurred. {str(e)}")
+
+    @client.tree.command(name="setup-mute", description="Setup The Muted Role In The Server")
+    async def slash_setup_mute(interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.manage_roles:
+            await interaction.response.send_message("Error: You Do Not Have Permission To Run This Command.", ephemeral=True)
+            return
+
+        muted_role = discord.utils.get(interaction.guild.roles, name="Muted")
+
+        if muted_role:
+            await interaction.response.send_message("Error: A Role Named 'Muted' Already Exists.", ephemeral=True)
+            return
+
+        try:
+            muted_role = await interaction.guild.create_role(name="Muted", colour=discord.Colour(0x000001), reason="Muted Role Setup.")
+
+            for channel in interaction.guild.channels:
+                await channel.set_permissions(muted_role, 
+                                            send_messages=False, 
+                                            speak=False, 
+                                            add_reactions=False,
+                                            view_channel=True,
+                                            read_message_history=True)
+
+            await interaction.response.send_message("Success: 'Muted' Role Has Been Created And Configured.")
+        except discord.Forbidden:
+            await interaction.response.send_message("Error: Missing Permissions To Create Roles Or Edit Channel Permissions.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Error: An Unexpected Error Occurred. {str(e)}", ephemeral=True)
 
 # · · ─────── ·𖥸· ─────── · · Client Events / Error Checks · · ─────── ·𖥸· ─────── · ·
 
