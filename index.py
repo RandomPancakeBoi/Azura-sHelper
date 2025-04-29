@@ -8,6 +8,7 @@ import re
 import json
 import random
 import asyncio
+import datetime
 
 from dotenv import load_dotenv
 
@@ -25,6 +26,58 @@ eight_ball_response = [
     "Outlook Not So Good", "Very Doubtful"
 ]
 
+logs_config_file = "logs_config.json"
+
+commands_info = {
+    "General": [
+        ("hello", "No permissions required", "Greets the user."),
+        ("ping", "No permissions required", "Pings the bot to check its latency."),
+        ("aboutme", "No permissions required", "Displays your 'About Me' section."),
+        ("socials", "No permissions required", "Shows your social media links."),
+        ("twitch", "No permissions required", "Shows your Twitch link."),
+        ("youtube", "No permissions required", "Shows your YouTube link."),
+        ("twitter", "No permissions required", "Shows your Twitter link."),
+        ("discord", "No permissions required", "Shows your Discord link."),
+        ("kofi", "No permissions required", "Shows your Ko-fi link."),
+        ("donate", "No permissions required", "Shows your donation links."),
+    ],
+    "Points": [
+        ("points", "No permissions required", "Shows your current points."),
+        ("setpoints", "Administrator", "Sets the points of a user."),
+        ("addpoints", "Administrator", "Adds points to a user or everyone."),
+        ("removepoints", "Administrator", "Removes points from a user or everyone."),
+        ("leaderboard", "No permissions required", "Shows the leaderboard of users with the most points."),
+    ],
+    "Fun": [
+        ("8ball", "No permissions required", "Answers a random question."),
+        ("gamble", "No permissions required", "Allows you to gamble your points in a 50/50 chance."),
+        ("d", "No permissions required", "Rolls a dice of any size."),
+        ("color", "No permissions required", "Generates a random color for you."),
+        ("danceparty", "No permissions required", "Starts a dance party!!"),
+    ],
+    "Information": [
+        ("avatar", "No permissions required", "Displays a user's avatar."),
+        ("serveravatar", "No permissions required", "Displays the server's icon."),
+        ("serverinfo", "No permissions required", "Displays information about the server."),
+        ("userinfo", "No permissions required", "Displays information about a user."),
+    ],
+    "Moderation": [
+        ("ban", "Administrator", "Bans a user from the server."),
+        ("unban", "Administrator", "Unbans a user from the server."),
+        ("kick", "Moderator", "Kicks a user from the server."),
+        ("mute", "Moderator", "Mutes a user."),
+        ("unmute", "Moderator", "Unmutes a user."),
+        ("setup-mute", "Administrator", "Sets up the mute system."),
+        ("logs-setup", "Administrator", "Sets up logging."),
+        ("logs-disable", "Administrator", "Disables logging."),
+        ("warn", "Moderator", "Warns a user."),
+        ("remove-warning", "Moderator", "Removes a warning from a user."),
+        ("warns", "Moderator", "Shows the warnings of a user."),
+        ("rr", "Administrator", "Creates a reaction role."),
+        ("clear-rr", "Administrator", "Clears a reaction role."),
+    ]
+}
+
 # · · ─────── ·𖥸· ─────── · · Helper Functions · · ─────── ·𖥸· ─────── · ·
 def load_reaction_roles():
     if os.path.exists("reaction_roles.json"):
@@ -38,6 +91,94 @@ def save_reaction_roles(data):
         json.dump(data, f, indent = 4)
 
 reaction_roles = load_reaction_roles()
+
+async def send_punishment_log(guild: discord.Guild, title: str, user: discord.User, moderator: discord.User, reason: str):
+    # Check if punishment logs are enabled
+    with open("logs_config.json", "r") as f:
+        config = json.load(f)
+
+    guild_id = str(guild.id)
+    punishment_logs_enabled = config.get(guild_id, {}).get("punishment_logs_enabled", False)
+
+    if not punishment_logs_enabled:
+        return None
+    
+    channel = discord.utils.get(guild.text_channels, name="punishment-logs")
+    if not channel:
+        return None
+    
+    embed = discord.Embed(title=title, color=4915330)
+    embed.add_field(name="User", value=f"{user} ({user.id})", inline=False)
+    embed.add_field(name="Moderator", value=f"{moderator} ({moderator.id})", inline=False)
+    embed.add_field(name="Reason", value=reason or "No Reason Provided", inline=False)
+    embed.set_footer(text=f"Time: {discord.utils.format_dt(discord.utils.utcnow(), 'F')}")
+    
+    message = await channel.send(embed=embed)
+    return message.id
+
+async def log_purged_messages(guild, messages):
+    try:
+        with open("logs_config.json", "r") as f:
+            config = json.load(f)
+
+    except (FileNotFoundError, json.JSONDecodeError):
+        return
+    
+    guild_id = str(guild.id)
+    if guild_id not in config or not config[guild_id].get("purge_logs_enabled"):
+        return
+    
+    channel_id = config[guild_id].get("purge_channel_id")
+    if not channel_id:
+        return
+    
+    log_channel = guild.get_channel(channel_id)
+    if not log_channel:
+        return
+    
+    for message in messages:
+        embed = discord.Embed(
+            title="Message Purged",
+            description = f"**Author:** {message.author} (`{message.author.id}`)\n"
+                        f"**Channel:** {message.channel.mention}\n"
+                        f"**Content:** {message.content or '*[No content]*'}",
+            timestamp = message.created_at,
+            color = 4915330
+        )
+
+        await log_channel.send(embed = embed)
+
+def load_log_config():
+    if not os.path.exists(logs_config_file):
+        return {}
+    with open(logs_config_file, "r") as f:
+        return json.load(f)
+
+def save_log_config(data):
+    with open(logs_config_file, "w") as f:
+        json.dump(data, f, indent = 4)
+
+def load_warnings():
+    try:
+        with open('warnings.json', 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    
+def save_warnings(warnings):
+    with open('warnings.json', 'w') as f:
+        json.dump(warnings, f, indent = 4)
+
+def load_points():
+    if not os.path.exists("points.json"):
+        return {}
+    with open("points.json", "r") as f:
+        return json.load(f)
+
+def save_points(data):
+    with open("points.json", "w") as f:
+        json.dump(data, f, indent = 4)
+
 
 # · · ─────── ·𖥸· ─────── · · Utilities · · ─────── ·𖥸· ─────── · ·
 def parse_message_link(link_or_id):
@@ -54,6 +195,7 @@ def parse_message_link(link_or_id):
         return (None, None, int(link_or_id))
 
 
+
 # · · ─────── ·𖥸· ─────── · · Commands · · ─────── ·𖥸· ─────── · ·
 if token is None:
     print("Error: Token not found") # Check For Token
@@ -64,9 +206,11 @@ else:
 
     intents = discord.Intents.default()
     intents.message_content = True  # Required To Read Message Content
+    intents.members = True # Required To Read All Members
 
     # Bot Prefix With '/' Command Integration
     client = commands.Bot(command_prefix="!", intents=intents, application_id=1365716156006273114)
+    client.help_command = None
 
     @client.event
     async def on_ready():
@@ -75,6 +219,10 @@ else:
         for command in client.tree.get_commands():
             print(f"Command: {command.name}")  # Lists Registered Commands
         print("Slash Commands Synced")
+
+        for guild in client.guilds:
+            await guild.chunk()
+
 
 # · · ─────── ·𖥸· ─────── · · Client Basic Commands · · ─────── ·𖥸· ─────── · ·
 
@@ -106,27 +254,33 @@ else:
     @commands.has_permissions(manage_messages=True)
     async def purge(ctx, amount: int = 15, target: discord.Member = None): 
         await ctx.message.delete()
-        if target:
-            def check(message):
-                return message.author == target
-            await ctx.channel.purge(limit=amount, check=check)
-            await ctx.send(f"Purged {amount} Messages From {target.mention}")
-        else:
-            await ctx.channel.purge(limit=amount)
-            await ctx.send(f"Purged {amount} Messages")
+
+        def check(message):
+            return (not message.pinned) and (target is None or message.author == target)
+
+        messages = await ctx.channel.purge(limit=amount, check=check)
+
+        await ctx.send(
+            f"Purged {len(messages)} Messages" + (f" From {target.mention}" if target else ""),
+            delete_after=5
+        )
+
+        await log_purged_messages(ctx.guild, messages)
 
     # Slash Command Equivalent
     @client.tree.command(name="purge", description="Purge Past Messages, This Can Target A User Or Target Everyone")
     @app_commands.checks.has_permissions(manage_messages=True)
     async def slash_purge(interaction: discord.Interaction, amount: int = 15, target: discord.Member = None):
-        if target:
-            def check(message):
-                return message.author == target
-            await interaction.channel.purge(limit=amount, check=check)
-            await interaction.response.send_message(f"Purged {amount} Messages From {target.mention}")
-        else:
-            await interaction.channel.purge(limit=amount)
-            await interaction.response.send_message(f"Purged {amount} Messages")
+        def check(message):
+            return (not message.pinned) and (target is None or message.author == target)
+
+        messages = await interaction.channel.purge(limit=amount, check=check)
+
+        await interaction.response.send_message(
+            f"Purged {len(messages)} Messages" + (f" From {target.mention}" if target else "")
+        )
+
+        await log_purged_messages(interaction.guild, messages)
 
 
 # · · ─────── ·𖥸· ─────── · · Reaction Roles · · ─────── ·𖥸· ─────── · ·
@@ -670,6 +824,7 @@ else:
         # Banning The User From The Server
         await ctx.guild.ban(user, reason = reason, delete_message_days = 14) # Removing The Past 14 Days Of Messages
         await ctx.send(f"{user} Has Been Successfully Banned From {ctx.guild.name} For The Following Reason: {reason}")
+        await send_punishment_log(ctx.guild, "User Banned", user, ctx.author, reason)
 
     @client.tree.command(name = "ban", description = "Ban A User From The Server")
     @app_commands.describe(user = "User To Ban", reason = "Reason For The Ban")
@@ -700,6 +855,7 @@ else:
                 await interaction.response.send_message(f"Error: {user.name} Could Not Be Messaged")
             
             await interaction.response.send_message(f"{user} Has Been Successfully Banned From {interaction.guild.name} For The Following Reason: {reason}")
+            await send_punishment_log(interaction.guild, "User Banned", user, interaction.user, reason)
         
         except discord.DiscordException as e:
             await interaction.response.send_message(f"Error: An Error Occurred While Banning {user.name}. The Error Is As Follows {str(e)}", ephemeral = True)
@@ -744,6 +900,7 @@ else:
                 await ctx.send(f"Error: {user.name} Could Not Be Messaged.")
 
             await ctx.send(f"{user.name} Has Been Unbanned From {ctx.guild.name} And Reinvited.")
+            await send_punishment_log(ctx.guild, "User Unbanned", user, ctx.author, reason)
 
         except discord.DiscordException as e:
             await ctx.send(f"Error: An Error Has Occured While Banning {user.name}. Here Is The Error: {str(e)}")
@@ -790,6 +947,7 @@ else:
                 return
 
             await interaction.response.send_message(f"{user.name} Has Been Unbanned From {interaction.guild.name} And Reinvited.")
+            await send_punishment_log(interaction.guild, "User Unbanned", user, interaction.user, reason)
 
         except discord.DiscordException as e:
             await interaction.response.send_message(f"Error: An Error Has Occured While Banning {user.name}. Here Is The Error: {str(e)}", ephemeral=True)
@@ -819,6 +977,7 @@ else:
         # Kicking The User From The Server
         await ctx.guild.kick(user, reason = reason)
         await ctx.send(f"{user} Has Been Successfully Kicked From {ctx.guild.name} For The Following Reason: {reason}")
+        await send_punishment_log(ctx.guild, "User Kicked", user, ctx.author, reason)
 
     @client.tree.command(name = "kick", description = "Kick A User From The Server")
     @app_commands.describe(user = "User To Kick", reason = "Reason For The Kick")
@@ -847,6 +1006,7 @@ else:
                 await interaction.response.send_message(f"Error: {user.name} Could Not Be Messaged")
             
             await interaction.response.send_message(f"{user} Has Been Successfully Kicked From {interaction.guild.name} For The Following Reason: {reason}")
+            await send_punishment_log(interaction.guild, "User Kicked", user, interaction.user, reason)
         
         except discord.DiscordException as e:
             await interaction.response.send_message(f"Error: An Error Occurred While Kicking {user.name}. The Error Is As Follows {str(e)}", ephemeral = True)
@@ -934,6 +1094,7 @@ else:
             await ctx.send(f"Error: Cound Not Message {user.name}. They May Have Dms Closed.")
 
         await ctx.send(f"Success: {user.name} Has Been Muted.")
+        await send_punishment_log(ctx.guild, "User Muted", user, ctx.author, reason)
 
     @client.tree.command(name="mute", description="Mute A User In The Server")
     @app_commands.describe(user="User To Mute", reason="Reason For Muting")
@@ -963,6 +1124,7 @@ else:
             await interaction.followup.send(f"Error: Could Not Message {user.name}. They May Have DMs Closed.", ephemeral=True)
 
         await interaction.response.send_message(f"Success: {user.name} Has Been Muted.", ephemeral=False)
+        await send_punishment_log(interaction.guild, "User Muted", user, interaction.user, reason)
 
     @client.command(name="unmute")
     @commands.has_permissions(manage_roles=True)
@@ -987,6 +1149,7 @@ else:
             await ctx.send(f"Error: Could Not Message {user.name}. They May Have DMs Closed.")
 
         await ctx.send(f"Success: {user.name} Has Been Unmuted.")
+        await send_punishment_log(ctx.guild, "User Unmuted", user, ctx.author, reason = None)
 
     @client.tree.command(name="unmute", description="Unmute A User In The Server")
     @app_commands.describe(user="User To Unmute")
@@ -1011,6 +1174,7 @@ else:
             await interaction.followup.send(f"Error: Could Not Message {user.name}. They May Have DMs Closed.", ephemeral=True)
 
         await interaction.response.send_message(f"Success: {user.name} Has Been Unmuted.")
+        await send_punishment_log(interaction.guild, "User Unmuted", user, interaction.user, reason = None)
 
 
     @client.command(name = "setup-mute")
@@ -1068,7 +1232,1417 @@ else:
         except Exception as e:
             await interaction.response.send_message(f"Error: An Unexpected Error Occurred. {str(e)}", ephemeral=True)
 
-# · · ─────── ·𖥸· ─────── · · Client Events / Error Checks · · ─────── ·𖥸· ─────── · ·
+
+# · · ─────── ·𖥸· ─────── · · Log Setups · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="logs-setup")
+    @commands.has_permissions(administrator=True)
+    async def logs_setup(ctx, category_name: str, punishment_flag: str, purge_flag: str):
+        # Convert flags to lowercase for consistency
+        punishment_flag = punishment_flag.lower()
+        purge_flag = purge_flag.lower()
+
+        # Validate the flags to ensure they are either 'enable' or 'disable'
+        if punishment_flag not in ["enable", "disable"] or purge_flag not in ["enable", "disable"]:
+            await ctx.send("Error: Please use `enable` or `disable` for each log type.")
+            return
+
+        # Find or create the category
+        category = discord.utils.get(ctx.guild.categories, name=category_name)
+        if not category:
+            category = await ctx.guild.create_category(name=category_name)
+
+        # Only create the punishment channel if punishment logs are enabled
+        punishment_channel = None
+        if punishment_flag == "enable":
+            punishment_channel = discord.utils.get(ctx.guild.text_channels, name="punishment-logs")
+            if not punishment_channel:
+                punishment_channel = await ctx.guild.create_text_channel("punishment-logs", category=category)
+
+        # Only create the purge channel if purge logs are enabled
+        purge_channel = None
+        if purge_flag == "enable":
+            purge_channel = discord.utils.get(ctx.guild.text_channels, name="purge-logs")
+            if not purge_channel:
+                purge_channel = await ctx.guild.create_text_channel("purge-logs", category=category)
+
+        # Load the existing config or initialize an empty config
+        try:
+            with open("logs_config.json", "r") as f:
+                config = json.load(f)
+        except FileNotFoundError:
+            config = {}
+
+        guild_id = str(ctx.guild.id)
+        config[guild_id] = {
+            "punishment_logs_enabled": punishment_flag == "enable",
+            "purge_logs_enabled": purge_flag == "enable",
+            # Store channel IDs if they were created
+            "punishment_channel_id": punishment_channel.id if punishment_channel else None,
+            "purge_channel_id": purge_channel.id if purge_channel else None
+        }
+
+        # Save the updated config
+        with open("logs_config.json", "w") as f:
+            json.dump(config, f, indent=4)
+
+        # Build the response message based on the flags
+        response = f"Logs Setup Complete:\n- Punishment Logs: `{punishment_flag}`\n- Purge Logs: `{purge_flag}`"
+
+        # Send confirmation message
+        await ctx.send(response)
+
+
+    @client.tree.command(name="logs-setup", description="Set up punishment and purge logs.")
+    @app_commands.describe(
+        category_name="The name of the category to create the log channels in",
+        punishment_flag="Enable or disable punishment logs",
+        purge_flag="Enable or disable purge logs"
+    )
+    async def slash_logs_setup(interaction: discord.Interaction, category_name: str, punishment_flag: str, purge_flag: str):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("Error: You Do Not Have Permission To Run This Command.", ephemeral=True)
+            return
+        # Convert flags to lowercase for consistency
+        punishment_flag = punishment_flag.lower()
+        purge_flag = purge_flag.lower()
+
+        # Validate the flags to ensure they are either 'enable' or 'disable'
+        if punishment_flag not in ["enable", "disable"] or purge_flag not in ["enable", "disable"]:
+            await interaction.response.send_message("Error: Please use `enable` or `disable` for each log type.", ephemeral=True)
+            return
+
+        # Find or create the category
+        category = discord.utils.get(interaction.guild.categories, name=category_name)
+        if not category:
+            category = await interaction.guild.create_category(name=category_name)
+
+        # Only create the punishment channel if punishment logs are enabled
+        punishment_channel = None
+        if punishment_flag == "enable":
+            punishment_channel = discord.utils.get(interaction.guild.text_channels, name="punishment-logs")
+            if not punishment_channel:
+                punishment_channel = await interaction.guild.create_text_channel("punishment-logs", category=category)
+
+        # Only create the purge channel if purge logs are enabled
+        purge_channel = None
+        if purge_flag == "enable":
+            purge_channel = discord.utils.get(interaction.guild.text_channels, name="purge-logs")
+            if not purge_channel:
+                purge_channel = await interaction.guild.create_text_channel("purge-logs", category=category)
+
+        # Load the existing config or initialize an empty config
+        try:
+            with open("logs_config.json", "r") as f:
+                config = json.load(f)
+        except FileNotFoundError:
+            config = {}
+
+        guild_id = str(interaction.guild.id)
+        config[guild_id] = {
+            "punishment_logs_enabled": punishment_flag == "enable",
+            "purge_logs_enabled": purge_flag == "enable",
+            # Store channel IDs if they were created
+            "punishment_channel_id": punishment_channel.id if punishment_channel else None,
+            "purge_channel_id": purge_channel.id if purge_channel else None
+        }
+
+        # Save the updated config
+        with open("logs_config.json", "w") as f:
+            json.dump(config, f, indent=4)
+
+        # Build the response message based on the flags
+        response = f"Logs Setup Complete:\n- Punishment Logs: `{punishment_flag}`\n- Purge Logs: `{purge_flag}`"
+
+        # Send confirmation message
+        await interaction.response.send_message(response)
+
+
+    @client.command(name="logs-disable")
+    @commands.has_permissions(administrator=True)
+    async def logs_disable(ctx, punishment: str = "disable", purge: str = "disable"):
+        log_config = load_log_config()
+        guild_id = str(ctx.guild.id)
+
+        embed = discord.Embed(title="Logs Disabled", color=4915330)
+        channels_deleted = []
+
+        # Remove Punishment Logs if disabled
+        if punishment.lower() == "disable" and guild_id in log_config:
+            if "punishment_logs_enabled" in log_config[guild_id] and log_config[guild_id]["punishment_logs_enabled"]:
+                punishment_channel_id = log_config[guild_id].get("punishment_channel_id")
+                punishment_channel = discord.utils.get(ctx.guild.text_channels, id=punishment_channel_id)
+                
+                if punishment_channel:
+                    await punishment_channel.delete()
+                    channels_deleted.append("Punishment Logs")
+                    print(f"Punishment logs channel '{punishment_channel.name}' deleted.")
+                
+                # Remove punishment log data from the config
+                log_config[guild_id].pop("punishment_logs_enabled", None)
+                log_config[guild_id].pop("punishment_channel_id", None)
+
+        # Remove Purge Logs if disabled
+        if purge.lower() == "disable" and guild_id in log_config:
+            if "purge_logs_enabled" in log_config[guild_id] and log_config[guild_id]["purge_logs_enabled"]:
+                purge_channel_id = log_config[guild_id].get("purge_channel_id")
+                purge_channel = discord.utils.get(ctx.guild.text_channels, id=purge_channel_id)
+                
+                if purge_channel:
+                    await purge_channel.delete()
+                    channels_deleted.append("Purge Logs")
+                    print(f"Purge logs channel '{purge_channel.name}' deleted.")
+                
+                # Remove purge log data from the config
+                log_config[guild_id].pop("purge_logs_enabled", None)
+                log_config[guild_id].pop("purge_channel_id", None)
+
+        # Save the updated log config
+        save_log_config(log_config)
+
+        # Build response message
+        if channels_deleted:
+            embed.add_field(name="Deleted Channels", value=", ".join(channels_deleted), inline=False)
+        else:
+            embed.add_field(name="No Channels Were Deleted", value="No logs were disabled.", inline=False)
+
+        # Send the response to the user
+        await ctx.send(embed=embed)
+
+        print("Log configurations have been updated and removed successfully.")
+
+
+    @client.tree.command(name="logs-disable", description="Disable punishment and/or purge logs.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def slash_logs_disable(interaction: discord.Interaction, punishment: str = "disable", purge: str = "disable"):
+        log_config = load_log_config()
+        guild_id = str(interaction.guild.id)
+
+        embed = discord.Embed(title="Logs Disabled", color=4915330)
+        channels_deleted = []
+
+        # Remove Punishment Logs if disabled
+        if punishment.lower() == "disable" and guild_id in log_config:
+            if "punishment_logs_enabled" in log_config[guild_id] and log_config[guild_id]["punishment_logs_enabled"]:
+                punishment_channel_id = log_config[guild_id].get("punishment_channel_id")
+                punishment_channel = discord.utils.get(interaction.guild.text_channels, id=punishment_channel_id)
+                
+                if punishment_channel:
+                    await punishment_channel.delete()
+                    channels_deleted.append("Punishment Logs")
+                    print(f"Punishment logs channel '{punishment_channel.name}' deleted.")
+                
+                # Remove punishment log data from the config
+                log_config[guild_id].pop("punishment_logs_enabled", None)
+                log_config[guild_id].pop("punishment_channel_id", None)
+
+        # Remove Purge Logs if disabled
+        if purge.lower() == "disable" and guild_id in log_config:
+            if "purge_logs_enabled" in log_config[guild_id] and log_config[guild_id]["purge_logs_enabled"]:
+                purge_channel_id = log_config[guild_id].get("purge_channel_id")
+                purge_channel = discord.utils.get(interaction.guild.text_channels, id=purge_channel_id)
+                
+                if purge_channel:
+                    await purge_channel.delete()
+                    channels_deleted.append("Purge Logs")
+                    print(f"Purge logs channel '{purge_channel.name}' deleted.")
+                
+                # Remove purge log data from the config
+                log_config[guild_id].pop("purge_logs_enabled", None)
+                log_config[guild_id].pop("purge_channel_id", None)
+
+        # Save the updated log config
+        save_log_config(log_config)
+
+        # Build response message
+        if channels_deleted:
+            embed.add_field(name="Deleted Channels", value=", ".join(channels_deleted), inline=False)
+        else:
+            embed.add_field(name="No Channels Were Deleted", value="No logs were disabled.", inline=False)
+
+        # Send the response to the user
+        await interaction.response.send_message(embed=embed)
+
+        print("Log configurations have been updated and removed successfully.")
+
+
+# · · ─────── ·𖥸· ─────── · · Warning Commands · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="warn")
+    @commands.has_permissions(manage_messages=True)
+    async def warn(ctx, user: discord.User, *, reason: str = None):
+        # Load the warnings data
+        warnings_data = load_warnings()
+
+        # Prepare the warning information
+        if str(user.id) not in warnings_data:
+            warnings_data[str(user.id)] = []
+
+        # Create the warning and send punishment log
+        message_id = await send_punishment_log(ctx.guild, "User Warned", user, ctx.author, reason)
+
+        if message_id:
+            # Add the new warning to the user's list of warnings with the message_id
+            warnings_data[str(user.id)].append({
+                "reason": reason,
+                "message_id": message_id
+            })
+
+            # Save the updated warnings data
+            save_warnings(warnings_data)
+
+            # Notify the user and moderator
+            await ctx.send(f"{user.mention} has been warned for: {reason}")
+            await user.send(f"You have been warned in {ctx.guild.name} for: {reason}")
+        else:
+            await ctx.send("Error: Punishment log channel does not exist.")
+
+    @client.command(name="remove-warning")
+    @commands.has_permissions(manage_channels=True)
+    async def remove_warning(ctx, user: discord.User, warning_number: int, *, reason: str = None):
+        # Load the warnings data
+        warnings_data = load_warnings()
+
+        # Get the user's warnings
+        user_warnings = warnings_data.get(str(user.id), [])
+
+        # Check if the warning number is valid
+        if warning_number > len(user_warnings) or warning_number <= 0:
+            await ctx.send(f"Error: Invalid warning number. {user.mention} has only {len(user_warnings)} warnings.")
+            return
+
+        # Get the warning to be removed
+        warning_to_remove = user_warnings[warning_number - 1]
+        message_id = warning_to_remove["message_id"]
+
+        # Remove the warning from the list
+        user_warnings.pop(warning_number - 1)
+
+        # Update the user's warnings in the JSON file
+        warnings_data[str(user.id)] = user_warnings
+        save_warnings(warnings_data)
+
+        # **Delete the punishment log message** using the saved message_id
+        punishment_channel = discord.utils.get(ctx.guild.text_channels, name="punishment-logs")
+        if punishment_channel:
+            try:
+                # Fetch the punishment log message by its message_id
+                punishment_log_message = await punishment_channel.fetch_message(message_id)
+                
+                # Delete the punishment log message
+                await punishment_log_message.delete()
+                print(f"Punishment log message {message_id} deleted in {punishment_channel.name}.")
+            
+            except discord.NotFound:
+                print(f"Punishment log message {message_id} not found.")
+            except discord.Forbidden:
+                print(f"Bot does not have permission to delete messages in the punishment logs channel.")
+
+        # Log the removal action in punishment logs (if implemented)
+        await send_punishment_log(ctx.guild, "Warning Removed", user, ctx.author, reason)
+
+        # Notify the user
+        await ctx.send(f"Warning {warning_number} for {user.mention} has been removed.")
+
+
+    @client.command(name="warns")
+    @commands.has_permissions(manage_messages=True)
+    async def warns(ctx, user: discord.User = None):
+        # Default to the message author if no user is provided
+        if not user:
+            user = ctx.author
+
+        # Load the warnings data
+        warnings_data = load_warnings()
+
+        # Check if the user has any warnings
+        if str(user.id) not in warnings_data or not warnings_data[str(user.id)]:
+            await ctx.send(f"{user.mention} has no warnings.")
+            return
+
+        # Get the list of warnings for the user
+        user_warnings = warnings_data[str(user.id)]
+
+        # Create an embed to display the warnings
+        embed = discord.Embed(title=f"Warnings for {user}", color=4915330)
+
+        # Add each warning to the embed
+        for idx, warning in enumerate(user_warnings, start=1):
+            embed.add_field(name=f"Warning {idx}", value=warning.get("reason", "No reason provided."), inline=False)
+
+        # Send the embed with the warnings
+        await ctx.send(embed=embed)
+
+
+    @client.tree.command(name="warn", description="Warn a user in the server.")
+    @app_commands.describe(
+        user="The user to warn",
+        reason="The reason for the warning"
+    )
+    async def slash_warn(interaction: discord.Interaction, user: discord.User, reason: str = None):
+        if not interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message("Error: You Do Not Have Permission To Run This Command.", ephemeral=True)
+            return
+        # Load the warnings data
+        warnings_data = load_warnings()
+
+        # Prepare the warning information
+        if str(user.id) not in warnings_data:
+            warnings_data[str(user.id)] = []
+
+        # Create the warning and send punishment log
+        message_id = await send_punishment_log(interaction.guild, "User Warned", user, interaction.user, reason)
+
+        if message_id:
+            # Add the new warning to the user's list of warnings with the message_id
+            warnings_data[str(user.id)].append({
+                "reason": reason,
+                "message_id": message_id
+            })
+
+            # Save the updated warnings data
+            save_warnings(warnings_data)
+
+            # Notify the user and moderator
+            await interaction.response.send_message(f"{user.mention} has been warned for: {reason}")
+            await user.send(f"You have been warned in {interaction.guild.name} for: {reason}")
+        else:
+            await interaction.response.send_message("Error: Punishment log channel does not exist.")
+
+    @client.tree.command(name="remove-warning", description="Remove a specific warning from a user.")
+    @app_commands.describe(
+        user="The user to remove a warning from",
+        warning_number="The number of the warning to remove",
+        reason="The reason for removing the warning"
+    )
+    async def slash_remove_warning(interaction: discord.Interaction, user: discord.User, warning_number: int, reason: str = None):
+        if not interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message("Error: You Do Not Have Permission To Run This Command.", ephemeral=True)
+            return
+        # Load the warnings data
+        warnings_data = load_warnings()
+
+        # Get the user's warnings
+        user_warnings = warnings_data.get(str(user.id), [])
+
+        # Check if the warning number is valid
+        if warning_number > len(user_warnings) or warning_number <= 0:
+            await interaction.response.send_message(f"Error: Invalid warning number. {user.mention} has only {len(user_warnings)} warnings.")
+            return
+
+        # Get the warning to be removed
+        warning_to_remove = user_warnings[warning_number - 1]
+        message_id = warning_to_remove["message_id"]
+
+        # Remove the warning from the list
+        user_warnings.pop(warning_number - 1)
+
+        # Update the user's warnings in the JSON file
+        warnings_data[str(user.id)] = user_warnings
+        save_warnings(warnings_data)
+
+        # **Delete the punishment log message** using the saved message_id
+        punishment_channel = discord.utils.get(interaction.guild.text_channels, name="punishment-logs")
+        if punishment_channel:
+            try:
+                # Fetch the punishment log message by its message_id
+                punishment_log_message = await punishment_channel.fetch_message(message_id)
+                
+                # Delete the punishment log message
+                await punishment_log_message.delete()
+                print(f"Punishment log message {message_id} deleted in {punishment_channel.name}.")
+            
+            except discord.NotFound:
+                print(f"Punishment log message {message_id} not found.")
+            except discord.Forbidden:
+                print(f"Bot does not have permission to delete messages in the punishment logs channel.")
+
+        # Log the removal action in punishment logs (if implemented)
+        await send_punishment_log(interaction.guild, "Warning Removed", user, interaction.user, reason)
+
+        # Notify the user
+        await interaction.response.send_message(f"Warning {warning_number} for {user.mention} has been removed.")
+
+    @client.tree.command(name="warns", description="View the warnings of a user.")
+    @app_commands.describe(
+        user="The user whose warnings you want to view"
+    )
+    async def slash_warns(interaction: discord.Interaction, user: discord.User = None):
+        # Default to the message author if no user is provided
+        if not user:
+            user = interaction.user
+
+        # Load the warnings data
+        warnings_data = load_warnings()
+
+        # Check if the user has any warnings
+        if str(user.id) not in warnings_data or not warnings_data[str(user.id)]:
+            await interaction.response.send_message(f"{user.mention} has no warnings.")
+            return
+
+        # Get the list of warnings for the user
+        user_warnings = warnings_data[str(user.id)]
+
+        # Create an embed to display the warnings
+        embed = discord.Embed(title=f"Warnings for {user}", color=4915330)
+
+        # Add each warning to the embed
+        for idx, warning in enumerate(user_warnings, start=1):
+            embed.add_field(name=f"Warning {idx}", value=warning.get("reason", "No reason provided."), inline=False)
+
+        # Send the embed with the warnings
+        await interaction.response.send_message(embed=embed)
+
+# · · ─────── ·𖥸· ─────── · · Points Commands · · ─────── ·𖥸· ─────── · ·
+    @client.command(name = "points")
+    async def points(ctx, user: discord.User = None):
+        if user is None:
+            user = ctx.author
+
+        if user.bot:
+            await ctx.send("Bot's Don't Earn Points, Get Outta Here Stinky.")
+            return
+        
+        points_data = load_points()
+        user_points = points_data.get(str(user.id), 0)
+
+        embed = discord.Embed(
+            title=f"{user.name}'s Points",
+            description=f"{user.mention} has **{user_points}** points. Within {ctx.guild.name}",
+            color=4915330
+        )
+
+        if ctx.guild.icon:
+            embed.set_thumbnail(url=ctx.guild.icon.url)
+
+        embed.set_footer(text=f"Requested by {ctx.author}", icon_url=ctx.author.display_avatar.url)
+
+        await ctx.send(embed=embed)
+
+    @client.command(name="setpoints")
+    @commands.has_permissions(administrator=True)
+    async def setpoints(ctx, target: str, points: int):
+        points_data = load_points()
+
+        if target == "`E$":
+            count = 0
+            for member in ctx.guild.members:
+                if not member.bot and not member.system:
+                    points_data[str(member.id)] = points
+                    count += 1
+
+            save_points(points_data)
+            await ctx.send(f"✅ Set **{points}** points for **{count}** members in this server.")
+            return
+
+        try:
+            # Convert to User object
+            member = await commands.UserConverter().convert(ctx, target)
+        except commands.BadArgument:
+            await ctx.send("❌ Invalid user.")
+            return
+
+        if member.bot or member.system:
+            await ctx.send("❌ Cannot set points for bots or system users.")
+            return
+
+        points_data[str(member.id)] = points
+        save_points(points_data)
+        await ctx.send(f"✅ Set **{points}** points for {member.mention}.")
+
+    @client.command(name="addpoints")
+    @commands.has_permissions(administrator=True)
+    async def addpoints(ctx, user_or_everyone: str, amount: int):
+        if amount <= 0:
+            await ctx.send("Amount must be greater than zero.")
+            return
+
+        # Load points
+        try:
+            with open("points.json", "r") as f:
+                points = json.load(f)
+        except FileNotFoundError:
+            points = {}
+
+        added_to = []
+
+        # Add points to everyone
+        if user_or_everyone == "`E$":
+            for member in ctx.guild.members:
+                if member.bot or member.system:
+                    continue
+                points[str(member.id)] = points.get(str(member.id), 0) + amount
+                added_to.append(str(member))
+
+            with open("points.json", "w") as f:
+                json.dump(points, f, indent=4)
+
+            embed = discord.Embed(
+                title="Points Added Server-wide",
+                description=f"Added `{amount}` points to all members (excluding bots and webhooks).",
+                color=discord.Color.green()
+            )
+            embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else discord.Embed.Empty)
+            await ctx.send(embed=embed)
+
+        else:
+            # Try to parse user
+            try:
+                user = await commands.MemberConverter().convert(ctx, user_or_everyone)
+            except commands.BadArgument:
+                await ctx.send("Could not find that user.")
+                return
+
+            if user.bot or user.system:
+                await ctx.send("You can't add points to bots or system users.")
+                return
+
+            points[str(user.id)] = points.get(str(user.id), 0) + amount
+            with open("points.json", "w") as f:
+                json.dump(points, f, indent=4)
+
+            embed = discord.Embed(
+                title="Points Added",
+                description=f"Added `{amount}` points to {user.mention}.",
+                color=discord.Color.green()
+            )
+            embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else discord.Embed.Empty)
+            await ctx.send(embed=embed)
+
+    @client.command(name="removepoints")
+    @commands.has_permissions(administrator=True)
+    async def removepoints(ctx, user_or_everyone: str, amount: int):
+        if amount <= 0:
+            await ctx.send("Amount must be greater than zero.")
+            return
+
+        # Load points
+        try:
+            with open("points.json", "r") as f:
+                points = json.load(f)
+        except FileNotFoundError:
+            points = {}
+
+        removed_from = []
+
+        if user_or_everyone == "`E$":
+            for member in ctx.guild.members:
+                if member.bot or member.system:
+                    continue
+
+                user_id = str(member.id)
+                points[user_id] = max(0, points.get(user_id, 0) - amount)
+                removed_from.append(member.display_name)
+
+            with open("points.json", "w") as f:
+                json.dump(points, f, indent=4)
+
+            embed = discord.Embed(
+                title="Points Removed Server-wide",
+                description=f"Removed `{amount}` points from all members (excluding bots/system users).",
+                color=discord.Color.red()
+            )
+            embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else discord.Embed.Empty)
+            await ctx.send(embed=embed)
+
+        else:
+            # Convert the user argument to a Member object
+            try:
+                user = await commands.MemberConverter().convert(ctx, user_or_everyone)
+            except commands.BadArgument:
+                await ctx.send("Could not find that user.")
+                return
+
+            if user.bot or user.system:
+                await ctx.send("You can't remove points from bots or system users.")
+                return
+
+            user_id = str(user.id)
+            points[user_id] = max(0, points.get(user_id, 0) - amount)
+
+            with open("points.json", "w") as f:
+                json.dump(points, f, indent=4)
+
+            embed = discord.Embed(
+                title="Points Removed",
+                description=f"Removed `{amount}` points from {user.mention}.",
+                color=discord.Color.red()
+            )
+            embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else discord.Embed.Empty)
+            await ctx.send(embed=embed)
+
+    @client.tree.command(name="points", description="Check your points or someone else's.")
+    @app_commands.describe(user="Leave blank to check yourself.")
+    async def slash_points(interaction: discord.Interaction, user: discord.User = None):
+        await interaction.response.defer()
+        user = user or interaction.user
+
+        if user.bot:
+            await interaction.followup.send("Bots don't earn points.")
+            return
+
+        points_data = load_points()
+        points = points_data.get(str(user.id), 0)
+
+        embed = discord.Embed(
+            title=f"{user.name}'s Points",
+            description=f"{user.mention} has **{points}** points in **{interaction.guild.name}**.",
+            color=discord.Color.blurple()
+        )
+        if interaction.guild.icon:
+            embed.set_thumbnail(url=interaction.guild.icon.url)
+
+        embed.set_footer(text=f"Requested by {interaction.user}", icon_url=interaction.user.display_avatar.url)
+        await interaction.followup.send(embed=embed)
+
+    # --- /setpoints ---
+    @client.tree.command(name="setpoints", description="Set points for a user or everyone (E$).")
+    @app_commands.describe(target="Mention a user or type E$ for everyone", points="Points to set")
+    async def slash_setpoints(interaction: discord.Interaction, target: str, points: int):
+        await interaction.response.defer()
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("❌ You don't have permission.")
+            return
+
+        points_data = load_points()
+
+        if target == "`E$":
+            count = 0
+            for member in interaction.guild.members:
+                if not member.bot and not member.system:
+                    points_data[str(member.id)] = points
+                    count += 1
+            save_points(points_data)
+            await interaction.followup.send(f"✅ Set **{points}** points for **{count}** members.")
+            return
+
+        try:
+            member = await commands.MemberConverter().convert(interaction, target)
+        except commands.BadArgument:
+            await interaction.followup.send("❌ Invalid user.")
+            return
+
+        if member.bot or member.system:
+            await interaction.followup.send("❌ Cannot set points for bots or system users.")
+            return
+
+        points_data[str(member.id)] = points
+        save_points(points_data)
+        await interaction.followup.send(f"✅ Set **{points}** points for {member.mention}.")
+
+
+    @client.tree.command(name="addpoints", description="Add points to a user or everyone (E$).")
+    @app_commands.describe(user_or_everyone="User to add points to or E$ for everyone", amount="Amount of points to add")
+    async def slash_addpoints(interaction: discord.Interaction, user_or_everyone: str, amount: int):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+            return
+
+        if amount <= 0:
+            await interaction.response.send_message("Amount must be greater than zero.", ephemeral=True)
+            return
+
+        points_data = load_points()
+
+        added_to = []
+
+        if user_or_everyone == "`E$":
+            for member in interaction.guild.members:
+                if member.bot or member.system:
+                    continue
+                points_data[str(member.id)] = points_data.get(str(member.id), 0) + amount
+                added_to.append(str(member))
+
+            save_points(points_data)
+
+            embed = discord.Embed(
+                title="Points Added Server-wide",
+                description=f"Added `{amount}` points to all members (excluding bots and system users).",
+                color=discord.Color.green()
+            )
+            embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else discord.Embed.Empty)
+            await interaction.response.send_message(embed=embed)
+
+        else:
+            try:
+                user = await commands.MemberConverter().convert(interaction, user_or_everyone)
+            except commands.BadArgument:
+                await interaction.response.send_message("❌ Could not find that user.", ephemeral=True)
+                return
+
+            if user.bot or user.system:
+                await interaction.response.send_message("❌ You can't add points to bots or system users.", ephemeral=True)
+                return
+
+            points_data[str(user.id)] = points_data.get(str(user.id), 0) + amount
+            save_points(points_data)
+
+            embed = discord.Embed(
+                title="Points Added",
+                description=f"Added `{amount}` points to {user.mention}.",
+                color=discord.Color.green()
+            )
+            embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else discord.Embed.Empty)
+            await interaction.response.send_message(embed=embed)
+
+    @client.tree.command(name="removepoints", description="Remove points from a user or everyone (E$).")
+    @app_commands.describe(user_or_everyone="User to remove points from or E$ for everyone", amount="Amount of points to remove")
+    async def slash_removepoints(interaction: discord.Interaction, user_or_everyone: str, amount: int):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+            return
+
+        if amount <= 0:
+            await interaction.response.send_message("Amount must be greater than zero.", ephemeral=True)
+            return
+
+        points_data = load_points()
+
+        removed_from = []
+
+        if user_or_everyone == "`E$":
+            for member in interaction.guild.members:
+                if member.bot or member.system:
+                    continue
+                user_id = str(member.id)
+                points_data[user_id] = max(0, points_data.get(user_id, 0) - amount)
+                removed_from.append(member.display_name)
+
+            save_points(points_data)
+
+            embed = discord.Embed(
+                title="Points Removed Server-wide",
+                description=f"Removed `{amount}` points from all members (excluding bots and system users).",
+                color=discord.Color.red()
+            )
+            embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else discord.Embed.Empty)
+            await interaction.response.send_message(embed=embed)
+
+        else:
+            try:
+                user = await commands.MemberConverter().convert(interaction, user_or_everyone)
+            except commands.BadArgument:
+                await interaction.response.send_message("❌ Could not find that user.", ephemeral=True)
+                return
+
+            if user.bot or user.system:
+                await interaction.response.send_message("❌ You can't remove points from bots or system users.", ephemeral=True)
+                return
+
+            user_id = str(user.id)
+            points_data[user_id] = max(0, points_data.get(user_id, 0) - amount)
+
+            save_points(points_data)
+
+            embed = discord.Embed(
+                title="Points Removed",
+                description=f"Removed `{amount}` points from {user.mention}.",
+                color=discord.Color.red()
+            )
+            embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else discord.Embed.Empty)
+            await interaction.response.send_message(embed=embed)
+
+# · · ─────── ·𖥸· ─────── · · Leaderboard Commands · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="leaderboard")
+    async def leaderboard(ctx):
+        points_data = load_points()
+
+        sorted_users = sorted(points_data.items(), key=lambda x: x[1], reverse=True)
+        top_users = sorted_users[:10]
+
+        leaderboard_message = "🏆 **Top 10 Users with the Most Points** 🏆\n\n"
+        for index, (user_id, points) in enumerate(top_users, start=1):
+            user = ctx.guild.get_member(int(user_id))  # Get the member from the guild
+            if user:
+                leaderboard_message += f"{index}. **{user.name}**: {points} points\n"
+            else:
+                leaderboard_message += f"{index}. **User #{user_id}**: {points} points\n"
+
+        embed = discord.Embed(
+            title="Leaderboard",
+            description=leaderboard_message,
+            color=4915330
+        )
+        embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else discord.Embed.Empty)
+        await ctx.send(embed=embed)
+
+    @client.tree.command(name="leaderboard", description="Shows the top 10 users with the most points.")
+    async def slash_leaderboard(interaction: discord.Interaction):
+        points_data = load_points()
+
+        # Sort users by points in descending order
+        sorted_users = sorted(points_data.items(), key=lambda x: x[1], reverse=True)
+
+        # Get the top 10 users
+        top_users = sorted_users[:10]
+
+        # Build the leaderboard message
+        leaderboard_message = "🏆 **Top 10 Users with the Most Points** 🏆\n\n"
+        for index, (user_id, points) in enumerate(top_users, start=1):
+            user = interaction.guild.get_member(int(user_id))  # Get the member from the guild
+            if user:
+                leaderboard_message += f"{index}. **{user.name}**: {points} points\n"
+            else:
+                leaderboard_message += f"{index}. **User #{user_id}**: {points} points\n"
+
+        # Send the leaderboard message
+        embed = discord.Embed(
+            title="Leaderboard",
+            description=leaderboard_message,
+            color=discord.Color.blue()
+        )
+        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else discord.Embed.Empty)
+        
+        await interaction.response.send_message(embed=embed)
+
+# · · ─────── ·𖥸· ─────── · · Avatar Commands  · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="avatar")
+    async def avatar(ctx, user: discord.User = None):
+        if user is None:
+            user = ctx.author  # Default to the message author if no user is provided
+
+        embed = discord.Embed()
+        embed.set_image(url=user.display_avatar.url)  # Set the avatar image in the embed
+        await ctx.send(embed=embed)
+
+    @client.command(name="serveravatar")
+    async def serveravatar(ctx):
+        embed = discord.Embed()
+        embed.set_image(url=ctx.guild.icon.url)  # Set the guild's icon in the embed
+        await ctx.send(embed=embed)
+
+    @client.tree.command(name="avatar")
+    async def slash_avatar(interaction: discord.Interaction, user: discord.User = None):
+        if user is None:
+            user = interaction.user  # Default to the user who invoked the command if no user is provided
+
+        embed = discord.Embed()
+        embed.set_image(url=user.display_avatar.url)  # Set the avatar image in the embed
+        await interaction.response.send_message(embed=embed)
+    
+    @client.tree.command(name="serveravatar")
+    async def slash_serveravatar(interaction: discord.Interaction):
+        embed = discord.Embed()
+        embed.set_image(url=interaction.guild.icon.url)  # Set the guild's icon in the embed
+        await interaction.response.send_message(embed=embed)
+
+# · · ─────── ·𖥸· ─────── · · Server Info  · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="serverinfo")
+    async def serverinfo(ctx):
+        guild = ctx.guild
+
+        # Create Embed
+        embed = discord.Embed(
+            title=None,
+            color=discord.Color.from_rgb(75, 0, 130),
+            description=f"Information about **{guild.name}**"
+        )
+        
+        # Set author as server name with the guild icon as the URL
+        embed.set_author(name=guild.name, icon_url=guild.icon.url)
+        
+        # Set the guild icon as the thumbnail
+        embed.set_thumbnail(url=guild.icon.url)
+
+        # Add fields for server info
+        embed.add_field(name="Owner", value=guild.owner.name, inline=True)
+        embed.add_field(name="Members", value=str(len(guild.members)), inline=True)
+        embed.add_field(name="Roles", value=str(len(guild.roles)), inline=True)
+        embed.add_field(name="Categories", value=str(len(guild.categories)), inline=True)
+        embed.add_field(name="Text Channels", value=str(len(guild.text_channels)), inline=True)
+        embed.add_field(name="Voice Channels", value=str(len(guild.voice_channels)), inline=True)
+
+        # Boost information
+        boost_count = guild.premium_subscription_count
+        boost_tier = guild.premium_tier  # Get the boost tier
+        if boost_tier == 0:
+            boost_tier_str = "No Boosts"
+        elif boost_tier == 1:
+            boost_tier_str = "Tier 1"
+        elif boost_tier == 2:
+            boost_tier_str = "Tier 2"
+        elif boost_tier == 3:
+            boost_tier_str = "Tier 3"
+        embed.add_field(name="Boosts", value=f"{boost_count} Boosts - {boost_tier_str}", inline=True)
+
+        # Add footer with server ID and creation date
+        embed.set_footer(text=f"Server ID: {guild.id} | Created on: {guild.created_at.strftime('%d/%m/%Y %H:%M')}")
+        
+        # Set server banner as the image
+        if guild.banner:
+            embed.set_image(url=guild.banner.url)
+
+        # Create View for the buttons
+        view = View()
+
+        # Button to View Roles
+        roles_button = Button(label="View Roles", style=discord.ButtonStyle.primary)
+
+        async def roles_button_callback(interaction: discord.Interaction):
+            roles_list = "\n".join([role.name for role in guild.roles if role != discord.default_role])  # Exclude @everyone
+            await interaction.response.send_message(f"Roles in {guild.name}:\n{roles_list}")
+
+        roles_button.callback = roles_button_callback
+        view.add_item(roles_button)
+
+        # Button to View Emotes
+        emotes_button = Button(label="View Emotes", style=discord.ButtonStyle.primary)
+
+        async def emotes_button_callback(interaction: discord.Interaction):
+            emotes_list = "\n".join([f"<:{emoji.name}:{emoji.id}>" for emoji in guild.emojis])
+            if not emotes_list:
+                emotes_list = "No custom emotes found."
+            await interaction.response.send_message(f"Emotes in {guild.name}:\n{emotes_list}")
+
+        emotes_button.callback = emotes_button_callback
+        view.add_item(emotes_button)
+
+        # Send the message with the embed and the buttons
+        await ctx.send(embed=embed, view=view)
+
+    @client.tree.command(name="serverinfo", description="Get detailed information about the server.")
+    async def serverinfo(ctx: discord.Interaction):
+        guild = ctx.guild
+
+        # Create Embed
+        embed = discord.Embed(
+            title=None,
+            color=discord.Color.from_rgb(75, 0, 130),  # Set custom color
+            description=f"Information about **{guild.name}**"
+        )
+        
+        # Set author as server name with the guild icon as the URL
+        embed.set_author(name=guild.name, icon_url=guild.icon.url)
+        
+        # Set the guild icon as the thumbnail
+        embed.set_thumbnail(url=guild.icon.url)
+
+        # Add fields for server info
+        embed.add_field(name="Owner", value=guild.owner.name, inline=True)  # Show owner name, not mention
+        embed.add_field(name="Members", value=str(len(guild.members)), inline=True)
+        embed.add_field(name="Roles", value=str(len(guild.roles)), inline=True)
+        embed.add_field(name="Categories", value=str(len(guild.categories)), inline=True)
+        embed.add_field(name="Text Channels", value=str(len(guild.text_channels)), inline=True)
+        embed.add_field(name="Voice Channels", value=str(len(guild.voice_channels)), inline=True)
+
+        # Boost information
+        boost_count = guild.premium_subscription_count
+        boost_tier = guild.premium_tier  # Get the boost tier
+        if boost_tier == 0:
+            boost_tier_str = "No Boosts"
+        elif boost_tier == 1:
+            boost_tier_str = "Tier 1"
+        elif boost_tier == 2:
+            boost_tier_str = "Tier 2"
+        elif boost_tier == 3:
+            boost_tier_str = "Tier 3"
+        embed.add_field(name="Boosts", value=f"{boost_count} Boosts - {boost_tier_str}", inline=True)
+
+        # Add footer with server ID and creation date (formatted as MM/DD/YYYY HH:mm)
+        embed.set_footer(text=f"Server ID: {guild.id} | Created on: {guild.created_at.strftime('%d/%m/%Y %H:%M')}")
+        
+        # Set server banner as the image
+        if guild.banner:
+            embed.set_image(url=guild.banner.url)
+
+        # Create View for the buttons
+        view = View()
+
+        # Button to View Roles
+        roles_button = Button(label="View Roles", style=discord.ButtonStyle.primary)
+
+        async def roles_button_callback(interaction: discord.Interaction):
+            roles_list = "\n".join([role.name for role in guild.roles if role != discord.default_role])  # Exclude @everyone
+            await interaction.response.send_message(f"Roles in {guild.name}:\n{roles_list}")
+
+        roles_button.callback = roles_button_callback
+        view.add_item(roles_button)
+
+        # Button to View Emotes
+        emotes_button = Button(label="View Emotes", style=discord.ButtonStyle.primary)
+
+        async def emotes_button_callback(interaction: discord.Interaction):
+            emotes_list = "\n".join([f"<:{emoji.name}:{emoji.id}>" for emoji in guild.emojis])
+            if not emotes_list:
+                emotes_list = "No custom emotes found."
+            await interaction.response.send_message(f"Emotes in {guild.name}:\n{emotes_list}")
+
+        emotes_button.callback = emotes_button_callback
+        view.add_item(emotes_button)
+
+        # Send the message with the embed and the buttons
+        await ctx.response.send_message(embed=embed, view=view)
+
+# · · ─────── ·𖥸· ─────── · · User Info  · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="userinfo")
+    async def userinfo(ctx, member: discord.Member = None):
+        member = member or ctx.author  # Default to the command author if no member is provided
+
+        embed = discord.Embed(
+            description=None,
+            color=discord.Color.from_rgb(75, 0, 130)
+        )
+
+        # Set author with user name and avatar
+        embed.set_author(name=member.name, icon_url=member.display_avatar.url)
+
+        # Roles
+        roles = [role.mention for role in member.roles if role != ctx.guild.default_role]
+        roles_text = ", ".join(roles) if roles else "No roles"
+
+        # Add fields
+        embed.add_field(name="Roles", value=roles_text, inline=False)
+        embed.add_field(name="User ID", value=member.id, inline=True)
+        embed.add_field(name="Display Name", value=member.display_name, inline=True)
+
+        # Footer with account creation date
+        embed.set_footer(text=f"Account Created: {member.created_at.strftime('%d/%m/%Y %H:%M')}")
+
+        await ctx.send(embed=embed)
+
+    @client.tree.command(name="userinfo")
+    async def userinfo(interaction: discord.Interaction, member: discord.Member = None):
+        member = member or interaction.user  # Default to the command author if no member is provided
+
+        embed = discord.Embed(
+            description=None,
+            color=discord.Color.from_rgb(75, 0, 130)
+        )
+
+        # Set author with user name and avatar
+        embed.set_author(name=member.name, icon_url=member.display_avatar.url)
+
+        # Roles
+        roles = [role.mention for role in member.roles if role != interaction.guild.default_role]
+        roles_text = ", ".join(roles) if roles else "No roles"
+
+        # Add fields
+        embed.add_field(name="Roles", value=roles_text, inline=False)
+        embed.add_field(name="User ID", value=member.id, inline=True)
+        embed.add_field(name="Display Name", value=member.display_name, inline=True)
+
+        # Footer with account creation date
+        embed.set_footer(text=f"Account Created: {member.created_at.strftime('%d/%m/%Y %H:%M')}")
+
+        # Send the embed
+        await interaction.response.send_message(embed=embed)
+
+# · · ─────── ·𖥸· ─────── · · Gamba Commands  · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="gamble")
+    async def gamble(ctx, amount: str):
+        points_data = load_points()
+        user_points = points_data.get(str(ctx.author.id), 0)
+
+        if amount.endswith('%'):
+            try:
+                percentage = int(amount[:-1]) 
+                if percentage < 1 or percentage > 100:
+                    await ctx.send("Error: Please Enter A Valid Percentage")
+                    return
+
+                gamble_amount = int(user_points * (percentage / 100))
+            except ValueError:
+                await ctx.send("Error: Please Enter A Valid Percentage Or Number, Please Enter A Valid Percentage (e.g., 50%).")
+                return
+            
+        else:
+            try:
+                gamble_amount = int(amount)
+            except ValueError:
+                await ctx.send("Error: Please Enter A Valid Percentage Or Number")
+                return
+            
+        if gamble_amount > user_points:
+            await ctx.send(f"Error: You Don't Have Enough Points To Gamble {gamble_amount}, You Only Have {user_points}.")
+            return
+        
+        result = random.choice(["win", "lose"])
+
+        if result == "win":
+            new_points = user_points + gamble_amount  
+            points_data[str(ctx.author.id)] = new_points
+            save_points(points_data)
+            await ctx.send(f"🎉 You Rule! You Now Have **{new_points}** Points!")
+        else:
+            new_points = user_points - gamble_amount
+            points_data[str(ctx.author.id)] = new_points
+            save_points(points_data)
+            await ctx.send(f"😔 You Suck! You Now Only Have **{new_points}** Points.")
+
+    @client.tree.command(name="gamble", description="Gamble points (or a percentage of them) for a 50/50 chance to double your points.")
+    @app_commands.describe(amount="Amount of points or percentage (e.g., 100 or 50%) to gamble.")
+    async def gamble(interaction: discord.Interaction, amount: str):
+        points_data = load_points()
+        user_points = points_data.get(str(interaction.user.id), 0)
+
+        if amount.endswith('%'):
+            try:
+                percentage = int(amount[:-1])
+                if percentage < 1 or percentage > 100:
+                    await interaction.response.send_message("Error: Please Enter A Valid Percentage between 1 and 100.")
+                    return
+
+                gamble_amount = int(user_points * (percentage / 100))
+            except ValueError:
+                await interaction.response.send_message("Error: Please Enter A Valid Percentage (e.g., 50%).")
+                return
+
+        else:
+            try:
+                gamble_amount = int(amount)
+            except ValueError:
+                await interaction.response.send_message("Error: Please Enter A Valid Percentage Or Number.")
+                return
+
+        if gamble_amount > user_points:
+            await interaction.response.send_message(f"Error: You Don't Have Enough Points To Gamble {gamble_amount}, You Only Have {user_points}.")
+            return
+        
+        result = random.choice(["win", "lose"])
+
+        if result == "win":
+            new_points = user_points + gamble_amount 
+            points_data[str(interaction.user.id)] = new_points
+            save_points(points_data)
+            await interaction.response.send_message(f"🎉 You won! You now have **{new_points}** points!")
+        else:
+            new_points = user_points - gamble_amount 
+            points_data[str(interaction.user.id)] = new_points
+            save_points(points_data)
+            await interaction.response.send_message(f"😔 You lost! You now have **{new_points}** points.")
+
+# · · ─────── ·𖥸· ─────── · · Help Commands  · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="help")
+    async def help(ctx):
+        # Embed color
+        embed_color = discord.Color.from_rgb(75, 0, 130)
+
+        # Create a button for each category
+        button_1 = Button(label="General", style=discord.ButtonStyle.primary, custom_id="general")
+        button_2 = Button(label="Points", style=discord.ButtonStyle.primary, custom_id="points")
+        button_3 = Button(label="Fun", style=discord.ButtonStyle.primary, custom_id="fun")
+        button_4 = Button(label="Information", style=discord.ButtonStyle.primary, custom_id="information")
+        button_5 = Button(label="Moderation", style=discord.ButtonStyle.primary, custom_id="moderation")
+
+        # Create view for buttons
+        view = View(timeout=60)
+        view.add_item(button_1)
+        view.add_item(button_2)
+        view.add_item(button_3)
+        view.add_item(button_4)
+        view.add_item(button_5)
+
+        # Embed for the first page
+        embed = discord.Embed(
+            title="Help Command",
+            description="Click the buttons below to see the list of commands in each category.",
+            color=embed_color
+        )
+
+        # Button callbacks
+        async def button_callback(interaction: discord.Interaction):
+            category = interaction.data["custom_id"]  # Access the custom_id from interaction.data
+            
+            embed.clear_fields()  # Clear previous fields
+
+            # Depending on the button clicked, populate the embed with the relevant category's commands
+            if category == "general":
+                embed.title = "General Commands"
+                for cmd, perms, desc in commands_info["General"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+            elif category == "points":
+                embed.title = "Points Commands"
+                for cmd, perms, desc in commands_info["Points"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+            elif category == "fun":
+                embed.title = "Fun Commands"
+                for cmd, perms, desc in commands_info["Fun"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+            elif category == "information":
+                embed.title = "Information Commands"
+                for cmd, perms, desc in commands_info["Information"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+            elif category == "moderation":
+                embed.title = "Moderation Commands"
+                for cmd, perms, desc in commands_info["Moderation"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+
+            # Update the message with the new embed
+            await interaction.response.edit_message(embed=embed, view=view)
+
+        # Set the button callback function
+        button_1.callback = button_callback
+        button_2.callback = button_callback
+        button_3.callback = button_callback
+        button_4.callback = button_callback
+        button_5.callback = button_callback
+
+        # Send the initial embed with buttons
+        await ctx.send(embed=embed, view=view)
+
+
+    @client.tree.command(name="help")
+    async def help(interaction: discord.Interaction):
+        embed_color = discord.Color.from_rgb(75, 0, 130)
+
+        # Create buttons for each category
+        button_1 = Button(label="General", style=discord.ButtonStyle.primary, custom_id="general")
+        button_2 = Button(label="Points", style=discord.ButtonStyle.primary, custom_id="points")
+        button_3 = Button(label="Fun", style=discord.ButtonStyle.primary, custom_id="fun")
+        button_4 = Button(label="Information", style=discord.ButtonStyle.primary, custom_id="information")
+        button_5 = Button(label="Moderation", style=discord.ButtonStyle.primary, custom_id="moderation")
+
+        # Create view for buttons
+        view = View(timeout=60)
+        view.add_item(button_1)
+        view.add_item(button_2)
+        view.add_item(button_3)
+        view.add_item(button_4)
+        view.add_item(button_5)
+
+        # Embed for the first page
+        embed = discord.Embed(
+            title="Help Command",
+            description="Click the buttons below to see the list of commands in each category.",
+            color=embed_color
+        )
+
+        # Button callback
+        async def button_callback(interaction: discord.Interaction):
+            category = interaction.data["custom_id"]  # Access the custom_id from interaction.data
+            
+            embed.clear_fields()  # Clear previous fields
+
+            # Depending on the button clicked, populate the embed with the relevant category's commands
+            if category == "general":
+                embed.title = "General Commands"
+                for cmd, perms, desc in commands_info["General"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+            elif category == "points":
+                embed.title = "Points Commands"
+                for cmd, perms, desc in commands_info["Points"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+            elif category == "fun":
+                embed.title = "Fun Commands"
+                for cmd, perms, desc in commands_info["Fun"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+            elif category == "information":
+                embed.title = "Information Commands"
+                for cmd, perms, desc in commands_info["Information"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+            elif category == "moderation":
+                embed.title = "Moderation Commands"
+                for cmd, perms, desc in commands_info["Moderation"]:
+                    embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
+
+            # Update the message with the new embed
+            await interaction.response.edit_message(embed=embed, view=view)
+
+        # Set the button callback function
+        button_1.callback = button_callback
+        button_2.callback = button_callback
+        button_3.callback = button_callback
+        button_4.callback = button_callback
+        button_5.callback = button_callback
+
+        # Send the initial embed with buttons
+        await interaction.response.send_message(embed=embed, view=view)
+    
+
+# · · ─────── ·𖥸· ─────── · · Dice Commands  · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="roll", aliases = ["d"])
+    async def roll(ctx, sides: int):
+        # Check if the number of sides is valid
+        if sides < 2:
+            await ctx.send("Please enter a valid number of sides (greater than 1).")
+            return
+
+        # Roll the dice
+        result = random.randint(1, sides)
+
+        # Send the result
+        await ctx.send(f"{ctx.author.mention} You Rolled A {result}.")
+
+    @client.tree.command(name="roll", description="Roll a dice with the chosen number of sides.")
+    async def roll(ctx, sides: int):
+        # Check if the number of sides is valid
+        if sides < 2:
+            await ctx.send("Please enter a valid number of sides (greater than 1).")
+            return
+
+        # Roll the dice
+        result = random.randint(1, sides)
+
+        # Send the result
+        await ctx.send(f"{ctx.author.mention} You Rolled A {result}.")
+
+# · · ─────── ·𖥸· ─────── · · Hex Code Commands  · · ─────── ·𖥸· ─────── · ·
+
+    @client.command(name="color", aliases = ["colour", "hex"])
+    async def color(ctx):
+        # Generate a random hex color
+        random_color = "#{:02x}{:02x}{:02x}".format(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+
+        # Create the embed with the random color
+        embed = discord.Embed(
+            title="Random Color",
+            description=f"Here's a randomly generated hex color: {random_color}",
+            color=random_color  # Embed color matches the random color
+        )
+
+        # Add an image to the embed (you can use any service to generate a color image)
+        embed.set_image(url=f"https://singlecolorimage.com/get/{random_color[1:]}/400x400")
+
+        # Send the embed
+        await ctx.send(embed=embed)
+
+    @client.tree.command(name="color", description="Generates a random hex color and shows it.")
+    async def color(interaction: discord.Interaction):
+        # Generate a random hex color
+        random_color = "#{:02x}{:02x}{:02x}".format(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+
+        # Create the embed with the random color
+        embed = discord.Embed(
+            title="Random Color",
+            description=f"Here's a randomly generated hex color: {random_color}",
+            color=discord.Color(int(random_color[1:], 16))  # Embed color matches the random color
+        )
+
+        # Add an image to the embed (you can use any service to generate a color image)
+        embed.set_image(url=f"https://singlecolorimage.com/get/{random_color[1:]}/400x400")
+
+        # Respond to the interaction
+        await interaction.response.send_message(embed=embed)
+
+# · · ─────── ·𖥸· ─────── · · Dance Party Commands  · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="danceparty")
+    async def danceparty(ctx):
+        await ctx.send("https://tenor.com/view/azura-cat-rave-gif-13849479890178963463")
+
+    @client.tree.command(name="danceparty", description="Starts a dance party with Azura cat!")
+    async def danceparty(interaction: discord.Interaction):
+        await interaction.response.send_message("https://tenor.com/view/azura-cat-rave-gif-13849479890178963463")
+
+# · · ─────── ·𖥸· ─────── · · Temporary Commands  · · ─────── ·𖥸· ─────── · ·
+    @client.command(name="suggest")
+    async def suggest(ctx, *, suggestion: str):
+        # Get the user's name and the current time
+        user_name = ctx.author.name
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Define the file where suggestions will be saved
+        suggestion_file = "suggestions.txt"
+
+        # Prepare the message to write to the file
+        suggestion_message = f"Suggestion by {user_name} ({current_time}): {suggestion}\n"
+        
+        # Write the suggestion to the file
+        with open(suggestion_file, "a") as file:
+            file.write(suggestion_message)
+        
+        # Acknowledge the user that their suggestion has been saved
+        await ctx.send(f"Thank you for your suggestion, {user_name}! We've saved it.")
+
+
+# · · ─────── ·𖥸· ─────── · · Client Events  · · ─────── ·𖥸· ─────── · ·
 
     @client.event
     async def on_raw_reaction_add(payload):
@@ -1107,6 +2681,36 @@ else:
                         break
 
 
+    @client.event
+    async def on_message(message):
+        if message.author.bot or message.webhook_id:
+            return
+        
+        points_data = load_points()
+        user_id = str(message.author.id)
+
+        if user_id not in points_data:
+            points_data[user_id] = 0
+
+        points_data[user_id] += random.randint(1, 7)
+        save_points(points_data)
+
+        await client.process_commands(message)
+
+    @client.event
+    async def on_member_join(member):
+        if member.bot:
+            return
+        
+        points_data = load_points()
+        user_id = str(member.id)
+
+        if user_id not in points_data:
+            points_data[user_id] = 500
+            save_points(points_data)
+
+# · · ─────── ·𖥸· ─────── · · Error Checks  · · ─────── ·𖥸· ─────── · ·
+
     @rr_clear.error
     async def rr_clear_error(ctx, error):
         if isinstance(error, commands.MissingPermissions):
@@ -1131,5 +2735,5 @@ else:
             await interaction.response.send_message("Error: You Are Missing Permissions To Use This Command.")
 
 
-# · · ─────── ·𖥸· ─────── · · Client Run · · ─────── ·𖥸· ─────── · ·
+# · · ─────── ·𖥸· ─────── · · Client Run & Define Help Command · · ─────── ·𖥸· ─────── · ·
     client.run(token)

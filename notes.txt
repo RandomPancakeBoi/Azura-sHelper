@@ -1,0 +1,17 @@
+import asyncio
+
+@client.command(name = "mute")
+@commands.has_permissions(manage_roles = True)
+async def mute(ctx, user: discord.Member, duration: int, *, reason: str = None):
+    muted_role = discord.utils.get(ctx.guild.roles, name="Muted")
+    
+    if not muted_role:
+        await ctx.send("Error: No 'Muted' Role Found. Please Create One.")
+        return
+
+    await user.add_roles(muted_role, reason=reason)
+    await ctx.send(f"Success: {user.name} Has Been Muted For {duration} Seconds.")
+
+    await asyncio.sleep(duration)
+    await user.remove_roles(muted_role)
+    await ctx.send(f"Success: {user.name} Has Been Unmuted After {duration} Seconds.")
