@@ -2476,7 +2476,7 @@ else:
         button_5.callback = button_callback
 
         # Send the initial embed with buttons
-        await ctx.send(embed=embed, view=view)
+        await ctx.send(embed=embed, view=view, ephemeral = True)
 
 
     @client.tree.command(name="help")
@@ -2544,7 +2544,7 @@ else:
         button_5.callback = button_callback
 
         # Send the initial embed with buttons
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral = True)
     
 
 # · · ─────── ·𖥸· ─────── · · Dice Commands  · · ─────── ·𖥸· ─────── · ·
