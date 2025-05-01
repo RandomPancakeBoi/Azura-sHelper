@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 from discord.ui import Button, View
 
@@ -40,18 +40,21 @@ commands_info = {
         ("discord", "No permissions required", "Shows your Discord link."),
         ("kofi", "No permissions required", "Shows your Ko-fi link."),
         ("donate", "No permissions required", "Shows your donation links."),
+        ("invite", "No permissions required", "Invite any user to this server. All you need is there user ID."),
+        ("poll", "No permissions requiured", "Creates a poll with up to four options.")
     ],
     "Points": [
         ("points", "No permissions required", "Shows your current points."),
         ("setpoints", "Administrator", "Sets the points of a user."),
         ("addpoints", "Administrator", "Adds points to a user or everyone."),
         ("removepoints", "Administrator", "Removes points from a user or everyone."),
+        ("give", "No permissions required", "Gives some of your points to someone else."),
         ("leaderboard", "No permissions required", "Shows the leaderboard of users with the most points."),
     ],
     "Fun": [
         ("8ball", "No permissions required", "Answers a random question."),
         ("gamble", "No permissions required", "Allows you to gamble your points in a 50/50 chance."),
-        ("d", "No permissions required", "Rolls a dice of any size."),
+        ("dice / d", "No permissions required", "Rolls a dice of any size."),
         ("color", "No permissions required", "Generates a random color for you."),
         ("danceparty", "No permissions required", "Starts a dance party!!"),
     ],
@@ -62,11 +65,16 @@ commands_info = {
         ("userinfo", "No permissions required", "Displays information about a user."),
     ],
     "Moderation": [
+        ("purge", "Moderator", "Purge messages in any channel, you can even target specific users."),
         ("ban", "Administrator", "Bans a user from the server."),
         ("unban", "Administrator", "Unbans a user from the server."),
         ("kick", "Moderator", "Kicks a user from the server."),
         ("mute", "Moderator", "Mutes a user."),
         ("unmute", "Moderator", "Unmutes a user."),
+        ("vcmute", "Moderator", "Mutes a user in vc."),
+        ("vcunmute", "Moderator", "Unmutes a user in vc."),
+        ("vcmutechannel", "Moderator", "Mutes everyone in vc who lack manage message permissions.."),
+        ("vcunmute", "Moderator", "Unmutes everyone in vc who lack manage message permissions."),
         ("setup-mute", "Administrator", "Sets up the mute system."),
         ("logs-setup", "Administrator", "Sets up logging."),
         ("logs-disable", "Administrator", "Disables logging."),
@@ -178,7 +186,6 @@ def load_points():
 def save_points(data):
     with open("points.json", "w") as f:
         json.dump(data, f, indent = 4)
-
 
 # · · ─────── ·𖥸· ─────── · · Utilities · · ─────── ·𖥸· ─────── · ·
 def parse_message_link(link_or_id):
@@ -1232,6 +1239,204 @@ else:
         except Exception as e:
             await interaction.response.send_message(f"Error: An Unexpected Error Occurred. {str(e)}", ephemeral=True)
 
+    @client.command(name="vcmute")
+    @commands.has_permissions(mute_members=True)
+    async def vcmute(ctx, target: discord.Member = None):
+        voice = ctx.author.voice
+
+        if not voice or not voice.channel:
+            await ctx.send("You must be in a voice channel to use this command.")
+            return
+
+        vc = voice.channel
+
+        if target:
+            # Mute specific member
+            if target in vc.members:
+                await target.edit(mute=True)
+                await ctx.send(f"🔇 {target.mention} has been server muted in {vc.name}.")
+            else:
+                await ctx.send(f"{target.display_name} is not in your voice channel.")
+        else:
+            # Mute everyone without Manage Messages permission
+            muted = []
+            for member in vc.members:
+                if member.bot or member.guild_permissions.manage_messages:
+                    continue
+                try:
+                    await member.edit(mute=True)
+                    muted.append(member.display_name)
+                except:
+                    pass
+
+            if muted:
+                await ctx.send(f"🔇 Server muted: {', '.join(muted)}")
+            else:
+                await ctx.send("No users were muted. They may all have permissions or be bots.")
+
+    @client.tree.command(name="vcmute", description="Mute users in the voice channel.")
+    async def slash_vcmute(interaction: discord.Interaction, target: discord.Member = None):
+        if not interaction.user.guild_permissions.mute_members:
+            await interaction.response.send_message("You do not have permission to mute members.", ephemeral=True)
+            return
+        voice = interaction.user.voice
+
+        if not voice or not voice.channel:
+            await interaction.response.send_message("You must be in a voice channel to use this command.", ephemeral=True)
+            return
+
+        vc = voice.channel
+
+        if target:
+            # Mute specific member
+            if target in vc.members:
+                await target.edit(mute=True)
+                await interaction.response.send_message(f"🔇 {target.mention} has been server muted in {vc.name}.", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"{target.display_name} is not in your voice channel.", ephemeral=True)
+        else:
+            # Mute everyone without Manage Messages permission
+            muted = []
+            for member in vc.members:
+                if member.bot or member.guild_permissions.manage_messages:
+                    continue
+                try:
+                    await member.edit(mute=True)
+                    muted.append(member.display_name)
+                except:
+                    pass
+
+            if muted:
+                await interaction.response.send_message(f"🔇 Server muted: {', '.join(muted)}", ephemeral=True)
+            else:
+                await interaction.response.send_message("No users were muted. They may all have permissions or be bots.", ephemeral=True)
+
+    @client.tree.command(name="vcunmute", description="Server mute a targeted user.")
+    async def slash_vcunmute(interaction: discord.Interaction, target: discord.Member = None):
+        if not interaction.user.guild_permissions.mute_members:
+            await interaction.response.send_message("You do not have permission to mute members.", ephemeral=True)
+            return
+        voice = interaction.user.voice
+
+        if not voice or not voice.channel:
+            await interaction.response.send_message("You must be in a voice channel to use this command.")
+            return
+
+        vc = voice.channel
+
+        if target:
+            # Unmute specific member
+            if target in vc.members:
+                await target.edit(mute=False)
+                await interaction.response.send_message(f"🔊 {target.mention} has been unmuted in {vc.name}.")
+            else:
+                await interaction.response.send_message(f"{target.display_name} is not in your voice channel.")
+        else:
+            # Unmute everyone who is muted
+            unmuted = []
+            for member in vc.members:
+                if member.bot or member.guild_permissions.manage_messages:
+                    continue
+                try:
+                    # Only unmute if the user is currently muted
+                    if member.mute:
+                        await member.edit(mute=False)
+                        unmuted.append(member.display_name)
+                except discord.Forbidden:
+                    pass
+
+            if unmuted:
+                await interaction.response.send_message(f"🔊 Unmuted: {', '.join(unmuted)}")
+            else:
+                await interaction.response.send_message("No users were unmuted. They may all have permissions, be bots, or not be muted.")
+
+    @client.command(name="vcmutechannel")
+    @commands.has_permissions(mute_members=True)
+    async def vcmute_channel(ctx, channel: discord.VoiceChannel = None):
+        if not channel:
+            await ctx.send("You must provide a valid voice channel.")
+            return
+
+        muted = []
+        for member in channel.members:
+            if member.bot or member.guild_permissions.manage_messages:
+                continue  # Skip bots and members with Manage Messages permission
+            try:
+                await member.edit(mute=True)
+                muted.append(member.display_name)
+            except:
+                pass
+
+        if muted:
+            await ctx.send(f"🔇 Server muted in {channel.name}: {', '.join(muted)}")
+        else:
+            await ctx.send(f"No users were muted in {channel.name}. They may all have permissions or be bots.")
+
+    @client.tree.command(name="vcmutechannel", description="Mute everyone in a specific voice channel.")
+    @commands.has_permissions(mute_members=True)
+    async def slash_vcmute_channel(interaction: discord.Interaction, channel: discord.VoiceChannel):
+        if not channel:
+            await interaction.response.send_message("You must provide a valid voice channel.", ephemeral=True)
+            return
+
+        muted = []
+        for member in channel.members:
+            if member.bot or member.guild_permissions.manage_messages:
+                continue  # Skip bots and members with Manage Messages permission
+            try:
+                await member.edit(mute=True)
+                muted.append(member.display_name)
+            except:
+                pass
+
+        if muted:
+            await interaction.response.send_message(f"🔇 Server muted in {channel.name}: {', '.join(muted)}")
+        else:
+            await interaction.response.send_message(f"No users were muted in {channel.name}. They may all have permissions or be bots.", ephemeral=True)
+
+    @client.command(name="vcunmutechannel")
+    @commands.has_permissions(mute_members=True)
+    async def vcmute_channel(ctx, channel: discord.VoiceChannel):
+        if not channel:
+            await ctx.send("You must provide a valid voice channel.")
+            return
+
+        unmuted = []
+        for member in channel.members:
+            if member.bot or member.guild_permissions.manage_messages:
+                continue  # Skip bots and members with Manage Messages permission
+            try:
+                await member.edit(mute=False)
+                unmuted.append(member.display_name)
+            except:
+                pass
+
+        if unmuted:
+            await ctx.send(f"🔊 Server unmuted in {channel.name}: {', '.join(unmuted)}")
+        else:
+            await ctx.send(f"No users were unmuted in {channel.name}. They may all have permissions or be bots.")
+
+    @client.tree.command(name="vcunmutechannel", description="Unmute everyone in a specific voice channel.")
+    @commands.has_permissions(mute_members=True)
+    async def slash_vcunmute_channel(interaction: discord.Interaction, channel: discord.VoiceChannel):
+        if not channel:
+            await interaction.response.send_message("You must provide a valid voice channel.", ephemeral=True)
+            return
+
+        unmuted = []
+        for member in channel.members:
+            if member.bot or member.guild_permissions.manage_messages:
+                continue  # Skip bots and members with Manage Messages permission
+            try:
+                await member.edit(mute=False)
+                unmuted.append(member.display_name)
+            except:
+                pass
+
+        if unmuted:
+            await interaction.response.send_message(f"🔊 Server unmuted in {channel.name}: {', '.join(unmuted)}")
+        else:
+            await interaction.response.send_message(f"No users were unmuted in {channel.name}. They may all have permissions or be bots.", ephemeral=True)
 
 # · · ─────── ·𖥸· ─────── · · Log Setups · · ─────── ·𖥸· ─────── · ·
     @client.command(name="logs-setup")
@@ -1869,6 +2074,51 @@ else:
             embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else discord.Embed.Empty)
             await ctx.send(embed=embed)
 
+    @client.command(name="give")
+    async def give(ctx, user: discord.Member, amount: int):
+        if user.bot or user.system:
+            await ctx.send("You can't give points to bots or system users.")
+            return
+
+        if amount <= 0:
+            await ctx.send("Amount must be greater than zero.")
+            return
+
+        giver_id = str(ctx.author.id)
+        receiver_id = str(user.id)
+
+        # Load points
+        try:
+            with open("points.json", "r") as f:
+                points = json.load(f)
+        except FileNotFoundError:
+            points = {}
+
+        # Ensure users exist in the points dictionary
+        giver_points = points.get(giver_id, 0)
+        receiver_points = points.get(receiver_id, 0)
+
+        if giver_points < amount:
+            await ctx.send(f"You don't have enough points to give. You currently have `{giver_points}`.")
+            return
+
+        # Transfer points
+        points[giver_id] = giver_points - amount
+        points[receiver_id] = receiver_points + amount
+
+        # Save updated points
+        with open("points.json", "w") as f:
+            json.dump(points, f, indent=4)
+
+        # Create response embed
+        embed = discord.Embed(
+            title="Points Transferred",
+            description=f"{ctx.author.mention} gave `{amount}` points to {user.mention}.",
+            color=discord.Color.green()
+        )
+        embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else discord.Embed.Empty)
+        await ctx.send(embed=embed)
+
     @client.tree.command(name="points", description="Check your points or someone else's.")
     @app_commands.describe(user="Leave blank to check yourself.")
     async def slash_points(interaction: discord.Interaction, user: discord.User = None):
@@ -2040,6 +2290,56 @@ else:
             embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else discord.Embed.Empty)
             await interaction.response.send_message(embed=embed)
 
+    @client.tree.command(name="give", description="Give your points to another user.")
+    @app_commands.describe(user="The user to give points to", amount="Amount of points to give")
+    async def slash_give(interaction: discord.Interaction, user: discord.Member, amount: int):
+        if user.bot or user.system:
+            await interaction.response.send_message("You can't give points to bots or system users.", ephemeral=True)
+            return
+
+        if amount <= 0:
+            await interaction.response.send_message("Amount must be greater than zero.", ephemeral=True)
+            return
+
+        giver_id = str(interaction.user.id)
+        receiver_id = str(user.id)
+
+        # Load points
+        try:
+            with open("points.json", "r") as f:
+                points = json.load(f)
+        except FileNotFoundError:
+            points = {}
+
+        # Ensure users exist in the points dictionary
+        giver_points = points.get(giver_id, 0)
+        receiver_points = points.get(receiver_id, 0)
+
+        if giver_points < amount:
+            await interaction.response.send_message(
+                f"You don't have enough points to give. You currently have `{giver_points}`.",
+                ephemeral=True
+            )
+            return
+
+        # Transfer points
+        points[giver_id] = giver_points - amount
+        points[receiver_id] = receiver_points + amount
+
+        # Save updated points
+        with open("points.json", "w") as f:
+            json.dump(points, f, indent=4)
+
+        # Create response embed
+        embed = discord.Embed(
+            title="Points Transferred",
+            description=f"{interaction.user.mention} gave `{amount}` points to {user.mention}.",
+            color=discord.Color.green()
+        )
+        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else discord.Embed.Empty)
+
+        await interaction.response.send_message(embed=embed)
+
 # · · ─────── ·𖥸· ─────── · · Leaderboard Commands · · ─────── ·𖥸· ─────── · ·
     @client.command(name="leaderboard")
     async def leaderboard(ctx):
@@ -2099,7 +2399,7 @@ else:
         if user is None:
             user = ctx.author  # Default to the message author if no user is provided
 
-        embed = discord.Embed()
+        embed = discord.Embed(color=discord.Color.from_rgb(75, 0, 130))  # Set the color
         embed.set_image(url=user.display_avatar.url)  # Set the avatar image in the embed
         await ctx.send(embed=embed)
 
@@ -2109,16 +2409,16 @@ else:
         embed.set_image(url=ctx.guild.icon.url)  # Set the guild's icon in the embed
         await ctx.send(embed=embed)
 
-    @client.tree.command(name="avatar")
+    @client.tree.command(name="avatar", description="Displays the avatar of a targeted user or yourself.")
     async def slash_avatar(interaction: discord.Interaction, user: discord.User = None):
         if user is None:
             user = interaction.user  # Default to the user who invoked the command if no user is provided
 
-        embed = discord.Embed()
+        embed = discord.Embed(color=discord.Color.from_rgb(75, 0, 130))  # Set the color
         embed.set_image(url=user.display_avatar.url)  # Set the avatar image in the embed
         await interaction.response.send_message(embed=embed)
     
-    @client.tree.command(name="serveravatar")
+    @client.tree.command(name="serveravatar", description="Displays the server avatar.")
     async def slash_serveravatar(interaction: discord.Interaction):
         embed = discord.Embed()
         embed.set_image(url=interaction.guild.icon.url)  # Set the guild's icon in the embed
@@ -2136,13 +2436,9 @@ else:
             description=f"Information about **{guild.name}**"
         )
         
-        # Set author as server name with the guild icon as the URL
         embed.set_author(name=guild.name, icon_url=guild.icon.url)
-        
-        # Set the guild icon as the thumbnail
         embed.set_thumbnail(url=guild.icon.url)
 
-        # Add fields for server info
         embed.add_field(name="Owner", value=guild.owner.name, inline=True)
         embed.add_field(name="Members", value=str(len(guild.members)), inline=True)
         embed.add_field(name="Roles", value=str(len(guild.roles)), inline=True)
@@ -2150,125 +2446,102 @@ else:
         embed.add_field(name="Text Channels", value=str(len(guild.text_channels)), inline=True)
         embed.add_field(name="Voice Channels", value=str(len(guild.voice_channels)), inline=True)
 
-        # Boost information
+        # Boost info
         boost_count = guild.premium_subscription_count
-        boost_tier = guild.premium_tier  # Get the boost tier
-        if boost_tier == 0:
-            boost_tier_str = "No Boosts"
-        elif boost_tier == 1:
-            boost_tier_str = "Tier 1"
-        elif boost_tier == 2:
-            boost_tier_str = "Tier 2"
-        elif boost_tier == 3:
-            boost_tier_str = "Tier 3"
+        boost_tier = guild.premium_tier
+        boost_tier_str = ["No Boosts", "Tier 1", "Tier 2", "Tier 3"][boost_tier]
         embed.add_field(name="Boosts", value=f"{boost_count} Boosts - {boost_tier_str}", inline=True)
 
-        # Add footer with server ID and creation date
         embed.set_footer(text=f"Server ID: {guild.id} | Created on: {guild.created_at.strftime('%d/%m/%Y %H:%M')}")
-        
-        # Set server banner as the image
+
         if guild.banner:
             embed.set_image(url=guild.banner.url)
 
-        # Create View for the buttons
+        # View for buttons
         view = View()
 
-        # Button to View Roles
-        roles_button = Button(label="View Roles", style=discord.ButtonStyle.primary)
-
-        async def roles_button_callback(interaction: discord.Interaction):
-            roles_list = "\n".join([role.name for role in guild.roles if role != discord.default_role])  # Exclude @everyone
-            await interaction.response.send_message(f"Roles in {guild.name}:\n{roles_list}")
-
-        roles_button.callback = roles_button_callback
-        view.add_item(roles_button)
-
-        # Button to View Emotes
+        # Emotes button (always shown)
         emotes_button = Button(label="View Emotes", style=discord.ButtonStyle.primary)
 
         async def emotes_button_callback(interaction: discord.Interaction):
             emotes_list = "\n".join([f"<:{emoji.name}:{emoji.id}>" for emoji in guild.emojis])
             if not emotes_list:
                 emotes_list = "No custom emotes found."
-            await interaction.response.send_message(f"Emotes in {guild.name}:\n{emotes_list}")
+            await interaction.response.send_message(f"Emotes in {guild.name}:\n{emotes_list}", ephemeral=True)
 
         emotes_button.callback = emotes_button_callback
         view.add_item(emotes_button)
 
-        # Send the message with the embed and the buttons
+        # Roles button (only if user is admin)
+        if ctx.author.guild_permissions.administrator:
+            roles_button = Button(label="View Roles", style=discord.ButtonStyle.primary)
+
+            async def roles_button_callback(interaction: discord.Interaction):
+                roles_list = "\n".join([role.name for role in guild.roles if role != guild.default_role])
+                await interaction.response.send_message(f"Roles in {guild.name}:\n{roles_list}", ephemeral=True)
+
+            roles_button.callback = roles_button_callback
+            view.add_item(roles_button)
+
         await ctx.send(embed=embed, view=view)
 
     @client.tree.command(name="serverinfo", description="Get detailed information about the server.")
-    async def serverinfo(ctx: discord.Interaction):
+    async def slash_serverinfo(ctx: discord.Interaction):
         guild = ctx.guild
 
         # Create Embed
         embed = discord.Embed(
             title=None,
-            color=discord.Color.from_rgb(75, 0, 130),  # Set custom color
+            color=discord.Color.from_rgb(75, 0, 130),
             description=f"Information about **{guild.name}**"
         )
-        
-        # Set author as server name with the guild icon as the URL
+
         embed.set_author(name=guild.name, icon_url=guild.icon.url)
-        
-        # Set the guild icon as the thumbnail
         embed.set_thumbnail(url=guild.icon.url)
 
-        # Add fields for server info
-        embed.add_field(name="Owner", value=guild.owner.name, inline=True)  # Show owner name, not mention
+        embed.add_field(name="Owner", value=guild.owner.name, inline=True)
         embed.add_field(name="Members", value=str(len(guild.members)), inline=True)
         embed.add_field(name="Roles", value=str(len(guild.roles)), inline=True)
         embed.add_field(name="Categories", value=str(len(guild.categories)), inline=True)
         embed.add_field(name="Text Channels", value=str(len(guild.text_channels)), inline=True)
         embed.add_field(name="Voice Channels", value=str(len(guild.voice_channels)), inline=True)
 
-        # Boost information
         boost_count = guild.premium_subscription_count
-        boost_tier = guild.premium_tier  # Get the boost tier
-        if boost_tier == 0:
-            boost_tier_str = "No Boosts"
-        elif boost_tier == 1:
-            boost_tier_str = "Tier 1"
-        elif boost_tier == 2:
-            boost_tier_str = "Tier 2"
-        elif boost_tier == 3:
-            boost_tier_str = "Tier 3"
+        boost_tier = guild.premium_tier
+        boost_tier_str = ["No Boosts", "Tier 1", "Tier 2", "Tier 3"][boost_tier]
         embed.add_field(name="Boosts", value=f"{boost_count} Boosts - {boost_tier_str}", inline=True)
 
-        # Add footer with server ID and creation date (formatted as MM/DD/YYYY HH:mm)
         embed.set_footer(text=f"Server ID: {guild.id} | Created on: {guild.created_at.strftime('%d/%m/%Y %H:%M')}")
         
-        # Set server banner as the image
         if guild.banner:
             embed.set_image(url=guild.banner.url)
 
-        # Create View for the buttons
+        # Create view for buttons
         view = View()
 
-        # Button to View Roles
-        roles_button = Button(label="View Roles", style=discord.ButtonStyle.primary)
-
-        async def roles_button_callback(interaction: discord.Interaction):
-            roles_list = "\n".join([role.name for role in guild.roles if role != discord.default_role])  # Exclude @everyone
-            await interaction.response.send_message(f"Roles in {guild.name}:\n{roles_list}")
-
-        roles_button.callback = roles_button_callback
-        view.add_item(roles_button)
-
-        # Button to View Emotes
+        # Emotes button (always shown)
         emotes_button = Button(label="View Emotes", style=discord.ButtonStyle.primary)
 
         async def emotes_button_callback(interaction: discord.Interaction):
             emotes_list = "\n".join([f"<:{emoji.name}:{emoji.id}>" for emoji in guild.emojis])
             if not emotes_list:
                 emotes_list = "No custom emotes found."
-            await interaction.response.send_message(f"Emotes in {guild.name}:\n{emotes_list}")
+            await interaction.response.send_message(f"Emotes in {guild.name}:\n{emotes_list}", ephemeral=True)
 
         emotes_button.callback = emotes_button_callback
         view.add_item(emotes_button)
 
-        # Send the message with the embed and the buttons
+        # Roles button (only if user is admin)
+        if ctx.user.guild_permissions.administrator:
+            roles_button = Button(label="View Roles", style=discord.ButtonStyle.primary)
+
+            async def roles_button_callback(interaction: discord.Interaction):
+                roles_list = "\n".join([role.name for role in guild.roles if role != guild.default_role])
+                await interaction.response.send_message(f"Roles in {guild.name}:\n{roles_list}", ephemeral=True)
+
+            roles_button.callback = roles_button_callback
+            view.add_item(roles_button)
+
         await ctx.response.send_message(embed=embed, view=view)
 
 # · · ─────── ·𖥸· ─────── · · User Info  · · ─────── ·𖥸· ─────── · ·
@@ -2298,8 +2571,8 @@ else:
 
         await ctx.send(embed=embed)
 
-    @client.tree.command(name="userinfo")
-    async def userinfo(interaction: discord.Interaction, member: discord.Member = None):
+    @client.tree.command(name="userinfo", description="Displays the information on a targeted user or yourself")
+    async def slash_userinfo(interaction: discord.Interaction, member: discord.Member = None):
         member = member or interaction.user  # Default to the command author if no member is provided
 
         embed = discord.Embed(
@@ -2369,7 +2642,7 @@ else:
 
     @client.tree.command(name="gamble", description="Gamble points (or a percentage of them) for a 50/50 chance to double your points.")
     @app_commands.describe(amount="Amount of points or percentage (e.g., 100 or 50%) to gamble.")
-    async def gamble(interaction: discord.Interaction, amount: str):
+    async def slash_gamble(interaction: discord.Interaction, amount: str):
         points_data = load_points()
         user_points = points_data.get(str(interaction.user.id), 0)
 
@@ -2412,8 +2685,8 @@ else:
 # · · ─────── ·𖥸· ─────── · · Help Commands  · · ─────── ·𖥸· ─────── · ·
     @client.command(name="help")
     async def help(ctx):
-        # Embed color
         embed_color = discord.Color.from_rgb(75, 0, 130)
+        author = ctx.author  # Save the invoking user
 
         # Create a button for each category
         button_1 = Button(label="General", style=discord.ButtonStyle.primary, custom_id="general")
@@ -2422,28 +2695,27 @@ else:
         button_4 = Button(label="Information", style=discord.ButtonStyle.primary, custom_id="information")
         button_5 = Button(label="Moderation", style=discord.ButtonStyle.primary, custom_id="moderation")
 
-        # Create view for buttons
         view = View(timeout=60)
-        view.add_item(button_1)
-        view.add_item(button_2)
-        view.add_item(button_3)
-        view.add_item(button_4)
-        view.add_item(button_5)
+        for button in (button_1, button_2, button_3, button_4, button_5):
+            view.add_item(button)
 
-        # Embed for the first page
         embed = discord.Embed(
             title="Help Command",
             description="Click the buttons below to see the list of commands in each category.",
             color=embed_color
         )
 
-        # Button callbacks
         async def button_callback(interaction: discord.Interaction):
-            category = interaction.data["custom_id"]  # Access the custom_id from interaction.data
-            
-            embed.clear_fields()  # Clear previous fields
+            # Restrict interaction to original command user
+            if interaction.user.id != author.id:
+                await interaction.response.send_message(
+                    "You cannot interact with this help menu.", ephemeral=True
+                )
+                return
 
-            # Depending on the button clicked, populate the embed with the relevant category's commands
+            category = interaction.data["custom_id"]
+            embed.clear_fields()
+
             if category == "general":
                 embed.title = "General Commands"
                 for cmd, perms, desc in commands_info["General"]:
@@ -2465,23 +2737,19 @@ else:
                 for cmd, perms, desc in commands_info["Moderation"]:
                     embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
 
-            # Update the message with the new embed
             await interaction.response.edit_message(embed=embed, view=view)
 
-        # Set the button callback function
-        button_1.callback = button_callback
-        button_2.callback = button_callback
-        button_3.callback = button_callback
-        button_4.callback = button_callback
-        button_5.callback = button_callback
+        # Attach the same callback to all buttons
+        for btn in (button_1, button_2, button_3, button_4, button_5):
+            btn.callback = button_callback
 
-        # Send the initial embed with buttons
-        await ctx.send(embed=embed, view=view, ephemeral = True)
+        await ctx.send(embed=embed, view=view)
 
 
-    @client.tree.command(name="help")
-    async def help(interaction: discord.Interaction):
+    @client.tree.command(name="help", description="Displays this bots help command.")
+    async def slash_help(interaction: discord.Interaction):
         embed_color = discord.Color.from_rgb(75, 0, 130)
+        author_id = interaction.user.id  # Store the ID of the user who invoked the command
 
         # Create buttons for each category
         button_1 = Button(label="General", style=discord.ButtonStyle.primary, custom_id="general")
@@ -2492,26 +2760,25 @@ else:
 
         # Create view for buttons
         view = View(timeout=60)
-        view.add_item(button_1)
-        view.add_item(button_2)
-        view.add_item(button_3)
-        view.add_item(button_4)
-        view.add_item(button_5)
+        for button in (button_1, button_2, button_3, button_4, button_5):
+            view.add_item(button)
 
-        # Embed for the first page
         embed = discord.Embed(
             title="Help Command",
             description="Click the buttons below to see the list of commands in each category.",
             color=embed_color
         )
 
-        # Button callback
-        async def button_callback(interaction: discord.Interaction):
-            category = interaction.data["custom_id"]  # Access the custom_id from interaction.data
-            
-            embed.clear_fields()  # Clear previous fields
+        async def button_callback(inter: discord.Interaction):
+            if inter.user.id != author_id:
+                await inter.response.send_message(
+                    "You cannot interact with this help menu.", ephemeral=True
+                )
+                return
 
-            # Depending on the button clicked, populate the embed with the relevant category's commands
+            category = inter.data["custom_id"]
+            embed.clear_fields()
+
             if category == "general":
                 embed.title = "General Commands"
                 for cmd, perms, desc in commands_info["General"]:
@@ -2533,22 +2800,18 @@ else:
                 for cmd, perms, desc in commands_info["Moderation"]:
                     embed.add_field(name=cmd, value=f"Permissions: {perms}\nDescription: {desc}", inline=False)
 
-            # Update the message with the new embed
-            await interaction.response.edit_message(embed=embed, view=view)
+            await inter.response.edit_message(embed=embed, view=view)
 
-        # Set the button callback function
-        button_1.callback = button_callback
-        button_2.callback = button_callback
-        button_3.callback = button_callback
-        button_4.callback = button_callback
-        button_5.callback = button_callback
+        # Set the callback for all buttons
+        for btn in (button_1, button_2, button_3, button_4, button_5):
+            btn.callback = button_callback
 
-        # Send the initial embed with buttons
-        await interaction.response.send_message(embed=embed, view=view, ephemeral = True)
+        # Send the initial embed with the buttons
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
 
 # · · ─────── ·𖥸· ─────── · · Dice Commands  · · ─────── ·𖥸· ─────── · ·
-    @client.command(name="roll", aliases = ["d"])
+    @client.command(name="roll", aliases = ["d", "dice"])
     async def roll(ctx, sides: int):
         # Check if the number of sides is valid
         if sides < 2:
@@ -2562,7 +2825,7 @@ else:
         await ctx.send(f"{ctx.author.mention} You Rolled A {result}.")
 
     @client.tree.command(name="roll", description="Roll a dice with the chosen number of sides.")
-    async def roll(ctx, sides: int):
+    async def slash_roll(ctx, sides: int):
         # Check if the number of sides is valid
         if sides < 2:
             await ctx.send("Please enter a valid number of sides (greater than 1).")
@@ -2595,7 +2858,7 @@ else:
         await ctx.send(embed=embed)
 
     @client.tree.command(name="color", description="Generates a random hex color and shows it.")
-    async def color(interaction: discord.Interaction):
+    async def slash_color(interaction: discord.Interaction):
         # Generate a random hex color
         random_color = "#{:02x}{:02x}{:02x}".format(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
@@ -2618,7 +2881,7 @@ else:
         await ctx.send("https://tenor.com/view/azura-cat-rave-gif-13849479890178963463")
 
     @client.tree.command(name="danceparty", description="Starts a dance party with Azura cat!")
-    async def danceparty(interaction: discord.Interaction):
+    async def slash_danceparty(interaction: discord.Interaction):
         await interaction.response.send_message("https://tenor.com/view/azura-cat-rave-gif-13849479890178963463")
 
 # · · ─────── ·𖥸· ─────── · · Temporary Commands  · · ─────── ·𖥸· ─────── · ·
@@ -2641,6 +2904,67 @@ else:
         # Acknowledge the user that their suggestion has been saved
         await ctx.send(f"Thank you for your suggestion, {user_name}! We've saved it.")
 
+# · · ─────── ·𖥸· ─────── · · Poll Commands  · · ─────── ·𖥸· ─────── · ·
+
+    @client.command(name="poll")
+    async def poll(ctx, question: str, *options):
+        if len(options) == 0:
+            options = ("Yes", "No")
+        elif len(options) < 2:
+            await ctx.send("You need at least two options to create a poll.")
+            return
+        elif len(options) > 4:
+            await ctx.send("You can only provide up to 4 options.")
+            return
+
+        emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
+        description = "\n".join(f"{emojis[i]} {option}" for i, option in enumerate(options))
+
+        embed = discord.Embed(title=f"📊 {question}", description=description, color=discord.Color.blue())
+        embed.set_footer(text=f"Poll started by {ctx.author.display_name}")
+
+        message = await ctx.send(embed=embed)
+        for i in range(len(options)):
+            await message.add_reaction(emojis[i])
+
+    @client.tree.command(name="poll", description="Create a poll with up to 4 options.")
+    @app_commands.describe(
+        question="The poll question",
+        option1="First option (optional)",
+        option2="Second option (optional)",
+        option3="Third option (optional)",
+        option4="Fourth option (optional)"
+    )
+    async def poll(
+        interaction: discord.Interaction,
+        question: str,
+        option1: str = None,
+        option2: str = None,
+        option3: str = None,
+        option4: str = None
+    ):
+        options = [opt for opt in [option1, option2, option3, option4] if opt]
+
+        if len(options) == 0:
+            options = ["Yes", "No"]
+        elif len(options) < 2:
+            await interaction.response.send_message("You need at least two options to create a poll.", ephemeral=True)
+            return
+        elif len(options) > 4:
+            await interaction.response.send_message("You can only provide up to 4 options.", ephemeral=True)
+            return
+
+        emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
+        description = "\n".join(f"{emojis[i]} {option}" for i, option in enumerate(options))
+
+        embed = discord.Embed(title=f"📊 {question}", description=description, color=discord.Color.blurple())
+        embed.set_footer(text=f"Poll started by {interaction.user.display_name}")
+
+        await interaction.response.send_message(embed=embed)
+        message = await interaction.original_response()
+
+        for i in range(len(options)):
+            await message.add_reaction(emojis[i])
 
 # · · ─────── ·𖥸· ─────── · · Client Events  · · ─────── ·𖥸· ─────── · ·
 
